@@ -23,7 +23,7 @@ if (loginForm) {
         username: document.querySelector('#username').value,
         password: document.querySelector('#password').value
       });
-      const destinations = { Admin: '/admin.html', Doctor: '/doctor.html', User: '/user.html' };
+      const destinations = { Admin: '/admin.html', Doctor: '/doctor.html', User: '/user.html', Support: '/support.html' };
       window.location.href = destinations[user.role] || '/';
     } catch (error) { showError(error.message); }
   });
@@ -36,6 +36,10 @@ if (registerForm) {
     try {
       await submitJson('/api/auth/register', {
         fullName: document.querySelector('#full-name').value,
+        email: document.querySelector('#email').value,
+        dateOfBirth: document.querySelector('#date-of-birth').value,
+        phone: document.querySelector('#phone').value,
+        address: document.querySelector('#address').value,
         username: document.querySelector('#username').value,
         password: document.querySelector('#password').value
       });

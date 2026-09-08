@@ -29,6 +29,11 @@ public class AppointmentService : IAppointmentService
         return query.OrderBy(item => item.AppointmentDate).ToList();
     }
 
+    public List<Appointment> GetForUser(int userId)
+    {
+        return appointments.Where(item => item.UserId == userId).OrderBy(item => item.AppointmentDate).ToList();
+    }
+
     public Appointment GetById(int id)
     {
         return appointments.FirstOrDefault(item => item.Id == id)
@@ -63,6 +68,16 @@ public class AppointmentService : IAppointmentService
     public void Remove(int id)
     {
         appointments.Remove(GetById(id));
+    }
+
+    public void Cancel(int id, int userId)
+    {
+        var appointment = GetById(id);
+        if (appointment.UserId != userId)
+            throw new UnauthorizedAccessException("Bạn không có quyền thao tác lịch hẹn này.");
+        if (appointment.Status != AppointmentStatus.Scheduled)
+            throw new InvalidOperationException("Chỉ lịch hẹn đang chờ mới có thể hủy.");
+        appointment.Status = AppointmentStatus.Cancelled;
     }
 
     private void ValidateReferences(Appointment appointment)

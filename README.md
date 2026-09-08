@@ -51,15 +51,19 @@ Trang đăng ký dành cho người dùng:
 http://localhost:5078/register.html
 ```
 
-Tài khoản đăng ký mới luôn có role `User`. Tài khoản User được phép xem/tạo lịch hẹn nhưng không được quản lý bệnh nhân hoặc truy cập khu vực quản trị.
+Tài khoản đăng ký mới luôn có role `User` và tạo kèm hồ sơ bệnh nhân gồm họ tên, email, ngày sinh, số điện thoại và địa chỉ. User có thể chọn chuyên khoa, bác sĩ, ngày giờ, đặt lịch, hủy lịch và gửi yêu cầu hỗ trợ.
 
-Tài khoản demo:
+Tài khoản đặc biệt không được lưu trong source code. Khi chạy local, truyền mật khẩu qua biến môi trường:
 
-```text
-Lễ tân:   letu / 123456
-Admin:    admin / admin123
-Bác sĩ:   doctor / doctor123
+```powershell
+$env:MEDIKA_RECEPTIONIST_PASSWORD = 'mật-khẩu-lễ-tân'
+$env:MEDIKA_ADMIN_PASSWORD = 'mật-khẩu-admin'
+$env:MEDIKA_DOCTOR_PASSWORD = 'mật-khẩu-bác-sĩ'
+$env:MEDIKA_SUPPORT_PASSWORD = 'mật-khẩu-hỗ-trợ'
+dotnet run --project .\StudentManagement.csproj --launch-profile http
 ```
+
+Mật khẩu chỉ được băm bằng `PasswordHasher` trong bộ nhớ; API không bao giờ trả về mật khẩu hoặc password hash.
 
 Các khu vực riêng:
 
@@ -69,7 +73,7 @@ http://localhost:5078/admin.html
 http://localhost:5078/user.html
 ```
 
-Đường dẫn riêng không thay thế kiểm tra quyền: server vẫn yêu cầu cookie đăng nhập và role phù hợp. Admin có thể vào dashboard bằng tài khoản đặc biệt hoặc đường dẫn `/admin.html` sau khi đã đăng nhập.
+Đường dẫn riêng không thay thế kiểm tra quyền: server vẫn yêu cầu cookie đăng nhập và role phù hợp. Bác sĩ có thể ghi bệnh án, kê toa và quản lý lịch làm việc. Admin quản lý tài khoản và role. Nhân viên `Support` tiếp nhận và trả lời tin nhắn khách hàng.
 
 API xác thực:
 
@@ -78,6 +82,8 @@ POST /api/auth/register
 POST /api/auth/login
 GET  /api/auth/me
 POST /api/auth/logout
+POST /api/auth/change-password
+POST /api/auth/forgot-password
 ```
 
 ## API bác sĩ và lịch hẹn
@@ -96,6 +102,14 @@ PUT    /api/appointments/{id}
 DELETE /api/appointments/{id}
 
 GET    /api/dashboard
+GET    /api/medical-records
+POST   /api/medical-records
+POST   /api/medical-records/{id}/prescriptions
+GET    /api/doctors/{id}/schedule
+POST   /api/doctors/{id}/schedule
+GET    /api/support
+POST   /api/support
+PATCH  /api/support/{id}/reply
 ```
 
 Có thể lọc lịch hẹn bằng query string:

@@ -22,6 +22,12 @@ public class PatientManager : IPatientManager
             ?? throw new KeyNotFoundException($"Không tìm thấy bệnh nhân có mã {id}.");
     }
 
+    public Patient FindByUserId(int userId)
+    {
+        return patients.FirstOrDefault(patient => patient.UserId == userId)
+            ?? throw new KeyNotFoundException("Tài khoản chưa có hồ sơ bệnh nhân.");
+    }
+
     public void Add(Patient patient)
     {
         if (patients.Any(item => item.Id == patient.Id))

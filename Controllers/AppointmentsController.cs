@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 using StudentManagement.DTOs;
 using StudentManagement.Models;
 using StudentManagement.Services;
@@ -21,6 +22,8 @@ public class AppointmentsController : ControllerBase
     [HttpGet]
     public ActionResult<List<Appointment>> GetAll([FromQuery] DateTime? date = null, [FromQuery] AppointmentStatus? status = null)
     {
+        if (User.IsInRole("User"))
+            return Ok(appointmentService.GetForUser(int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)));
         return Ok(appointmentService.GetAll(date, status));
     }
 
@@ -37,10 +40,14 @@ public class AppointmentsController : ControllerBase
     {
         try
         {
+            var patientId = dto.PatientId;
+            if (User.IsInRole("User"))
+                patientId = HttpContext.RequestServices.GetRequiredService<IPatientManager>().FindByUserId(int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)).Id;
+
             var appointment = appointmentService.Add(new Appointment
             {
                 Id = appointmentService.GetAll().Select(item => item.Id).DefaultIfEmpty(0).Max() + 1,
-                PatientId = dto.PatientId, DoctorId = dto.DoctorId, AppointmentDate = dto.AppointmentDate,
+                PatientId = patientId, DoctorId = dto.DoctorId, UserId = User.IsInRole("User") ? int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!) : dto.UserId, AppointmentDate = dto.AppointmentDate,
                 Reason = dto.Reason.Trim(), Status = dto.Status
             });
             return CreatedAtAction(nameof(GetById), new { id = appointment.Id }, appointment);
@@ -74,5 +81,15 @@ public class AppointmentsController : ControllerBase
     {
         try { appointmentService.Remove(id); return NoContent(); }
         catch (KeyNotFoundException exception) { return NotFound(new { message = exception.Message }); }
+    }
+
+    [HttpPatch("{id:int}/cancel")]
+    [Authorize(Roles = "User")]
+    public IActionResult Cancel(int id)
+    {
+        try { appointmentService.Cancel(id, int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)); return NoContent(); }
+        catch (KeyNotFoundException exception) { return NotFound(new { message = exception.Message }); }
+        catch (UnauthorizedAccessException exception) { return Forbid(exception.Message); }
+        catch (InvalidOperationException exception) { return Conflict(new { message = exception.Message }); }
     }
 }

@@ -5,11 +5,12 @@ namespace StudentManagement.DTOs;
 
 public class AppointmentDto
 {
-    [Range(1, int.MaxValue)]
     public int PatientId { get; set; }
 
     [Range(1, int.MaxValue)]
     public int DoctorId { get; set; }
+
+    public int? UserId { get; set; }
 
     public DateTime AppointmentDate { get; set; }
 

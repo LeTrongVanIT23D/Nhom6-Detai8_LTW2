@@ -13,10 +13,12 @@ namespace StudentManagement.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IUserService userService;
+    private readonly IPatientManager patientManager;
 
-    public AuthController(IUserService userService)
+    public AuthController(IUserService userService, IPatientManager patientManager)
     {
         this.userService = userService;
+        this.patientManager = patientManager;
     }
 
     [AllowAnonymous]
@@ -26,12 +28,44 @@ public class AuthController : ControllerBase
         try
         {
             var user = userService.Register(register);
+            patientManager.Add(new StudentManagement.Models.Patient
+            {
+                Id = patientManager.GetAll().Select(item => item.Id).DefaultIfEmpty(0).Max() + 1,
+                UserId = user.Id,
+                FullName = register.FullName.Trim(),
+                DateOfBirth = register.DateOfBirth,
+                Phone = register.Phone.Trim(),
+                Address = register.Address.Trim(),
+                MedicalHistory = "Chưa cập nhật"
+            });
             return Created("/api/auth/me", user);
         }
         catch (InvalidOperationException exception)
         {
             return Conflict(new { message = exception.Message });
         }
+    }
+
+    [Authorize]
+    [HttpPost("change-password")]
+    public ActionResult<UserDto> ChangePassword(ChangePasswordDto password)
+    {
+        try
+        {
+            var user = userService.ChangePassword(int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!), password.CurrentPassword, password.NewPassword);
+            return Ok(user);
+        }
+        catch (UnauthorizedAccessException exception) { return Unauthorized(new { message = exception.Message }); }
+        catch (KeyNotFoundException exception) { return NotFound(new { message = exception.Message }); }
+    }
+
+    [AllowAnonymous]
+    [HttpPost("forgot-password")]
+    public IActionResult ForgotPassword(ForgotPasswordDto request)
+    {
+        // Do not reveal whether an account exists. Email delivery can be wired in later.
+        _ = userService.UserExists(request.UsernameOrEmail);
+        return Ok(new { message = "Nếu tài khoản tồn tại, hướng dẫn đặt lại mật khẩu sẽ được gửi qua email." });
     }
 
     [AllowAnonymous]

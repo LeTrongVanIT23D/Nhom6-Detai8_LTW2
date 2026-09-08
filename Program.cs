@@ -1,10 +1,12 @@
 ﻿using Microsoft.AspNetCore.Authentication.Cookies;
+using System.Text.Json.Serialization;
 using StudentManagement.Models;
 using StudentManagement.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(options =>
+	options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
 	.AddCookie(options =>
 	{
@@ -45,6 +47,12 @@ builder.Services.AddSingleton<IAppointmentService>(serviceProvider => new Appoin
 ],
 serviceProvider.GetRequiredService<IPatientManager>(),
 serviceProvider.GetRequiredService<IDoctorService>()));
+builder.Services.AddSingleton<IMedicalRecordService>(serviceProvider => new MedicalRecordService(
+	serviceProvider.GetRequiredService<IPatientManager>(),
+	serviceProvider.GetRequiredService<IDoctorService>()));
+builder.Services.AddSingleton<IScheduleService>(serviceProvider => new ScheduleService(
+	serviceProvider.GetRequiredService<IDoctorService>()));
+builder.Services.AddSingleton<ISupportService, SupportService>();
 
 var app = builder.Build();
 
@@ -75,6 +83,12 @@ app.Use(async (context, next) =>
 	}
 
 	if (path is "/user.html" && (!isAuthenticated || role != "User"))
+	{
+		context.Response.Redirect(isAuthenticated ? "/forbidden.html" : "/login.html");
+		return;
+	}
+
+	if (path is "/support.html" && (!isAuthenticated || role is not ("Support" or "Admin")))
 	{
 		context.Response.Redirect(isAuthenticated ? "/forbidden.html" : "/login.html");
 		return;
