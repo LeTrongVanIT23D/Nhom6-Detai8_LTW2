@@ -53,17 +53,17 @@ http://localhost:5078/register.html
 
 Tài khoản đăng ký mới luôn có role `User` và tạo kèm hồ sơ bệnh nhân gồm họ tên, email, ngày sinh, số điện thoại và địa chỉ. User có thể chọn chuyên khoa, bác sĩ, ngày giờ, đặt lịch, hủy lịch và gửi yêu cầu hỗ trợ.
 
-Tài khoản đặc biệt không được lưu trong source code. Khi chạy local, truyền mật khẩu qua biến môi trường:
+Tài khoản đặc biệt không được lưu trong source code. Chạy một lần script sau để lưu mật khẩu trong .NET User Secrets ở máy local:
 
 ```powershell
-$env:MEDIKA_RECEPTIONIST_PASSWORD = 'mật-khẩu-lễ-tân'
-$env:MEDIKA_ADMIN_PASSWORD = 'mật-khẩu-admin'
-$env:MEDIKA_DOCTOR_PASSWORD = 'mật-khẩu-bác-sĩ'
-$env:MEDIKA_SUPPORT_PASSWORD = 'mật-khẩu-hỗ-trợ'
+Set-ExecutionPolicy -Scope Process Bypass
+.\setup-local-accounts.ps1
 dotnet run --project .\StudentManagement.csproj --launch-profile http
 ```
 
-Mật khẩu chỉ được băm bằng `PasswordHasher` trong bộ nhớ; API không bao giờ trả về mật khẩu hoặc password hash.
+Script sẽ hỏi mật khẩu riêng cho các username `admin`, `doctor`, `letu` và `support`. Sau đó đăng nhập tại `http://localhost:5078/login.html`.
+
+Mật khẩu được lưu ngoài repository bằng .NET User Secrets và chỉ được băm bằng `PasswordHasher` trong bộ nhớ; API không bao giờ trả về mật khẩu hoặc password hash.
 
 Các khu vực riêng:
 

@@ -10,12 +10,12 @@ public class UserService : IUserService
     private readonly List<User> users =
     [];
 
-    public UserService()
+    public UserService(IConfiguration configuration)
     {
-        SeedSpecialAccount("MEDIKA_RECEPTIONIST_PASSWORD", "letu", "Lê Thu", "Receptionist", "receptionist@medika.local");
-        SeedSpecialAccount("MEDIKA_ADMIN_PASSWORD", "admin", "Quản trị viên", "Admin", "admin@medika.local");
-        SeedSpecialAccount("MEDIKA_DOCTOR_PASSWORD", "doctor", "Bác sĩ trực", "Doctor", "doctor@medika.local");
-        SeedSpecialAccount("MEDIKA_SUPPORT_PASSWORD", "support", "Nhân viên chăm sóc khách hàng", "Support", "support@medika.local");
+        SeedSpecialAccount(configuration, "AdminPassword", "MEDIKA_ADMIN_PASSWORD", "admin", "Quản trị viên", "Admin", "admin@medika.local");
+        SeedSpecialAccount(configuration, "DoctorPassword", "MEDIKA_DOCTOR_PASSWORD", "doctor", "Bác sĩ trực", "Doctor", "doctor@medika.local");
+        SeedSpecialAccount(configuration, "ReceptionistPassword", "MEDIKA_RECEPTIONIST_PASSWORD", "letu", "Lê Thu", "Receptionist", "receptionist@medika.local");
+        SeedSpecialAccount(configuration, "SupportPassword", "MEDIKA_SUPPORT_PASSWORD", "support", "Nhân viên chăm sóc khách hàng", "Support", "support@medika.local");
     }
 
     public List<UserDto> GetAll()
@@ -85,9 +85,9 @@ public class UserService : IUserService
         user.Role = allowedRoles.First(item => item.Equals(role, StringComparison.OrdinalIgnoreCase));
     }
 
-    private void SeedSpecialAccount(string passwordVariable, string username, string fullName, string role, string email)
+    private void SeedSpecialAccount(IConfiguration configuration, string secretKey, string passwordVariable, string username, string fullName, string role, string email)
     {
-        var password = Environment.GetEnvironmentVariable(passwordVariable);
+        var password = configuration[secretKey] ?? Environment.GetEnvironmentVariable(passwordVariable);
         if (string.IsNullOrWhiteSpace(password))
             return;
 
