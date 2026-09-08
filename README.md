@@ -37,11 +37,47 @@ GET  /api/users
 POST /api/users/login
 ```
 
+## Đăng nhập, đăng ký và phân quyền
+
+Trang đăng nhập:
+
+```text
+http://localhost:5078/login.html
+```
+
+Trang đăng ký dành cho người dùng:
+
+```text
+http://localhost:5078/register.html
+```
+
+Tài khoản đăng ký mới luôn có role `User`. Tài khoản User được phép xem/tạo lịch hẹn nhưng không được quản lý bệnh nhân hoặc truy cập khu vực quản trị.
+
 Tài khoản demo:
 
 ```text
-Username: letu
-Password: 123456
+Lễ tân:   letu / 123456
+Admin:    admin / admin123
+Bác sĩ:   doctor / doctor123
+```
+
+Các khu vực riêng:
+
+```text
+http://localhost:5078/doctor.html
+http://localhost:5078/admin.html
+http://localhost:5078/user.html
+```
+
+Đường dẫn riêng không thay thế kiểm tra quyền: server vẫn yêu cầu cookie đăng nhập và role phù hợp. Admin có thể vào dashboard bằng tài khoản đặc biệt hoặc đường dẫn `/admin.html` sau khi đã đăng nhập.
+
+API xác thực:
+
+```text
+POST /api/auth/register
+POST /api/auth/login
+GET  /api/auth/me
+POST /api/auth/logout
 ```
 
 ## API bác sĩ và lịch hẹn
@@ -100,6 +136,3 @@ POST   /api/patients
 PUT    /api/patients/{id}
 DELETE /api/patients/{id}
 ```
-=======
-
-=======

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using StudentManagement.DTOs;
 using StudentManagement.Models;
 using StudentManagement.Services;
@@ -7,6 +8,7 @@ namespace StudentManagement.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = "User,Doctor,Receptionist,Admin")]
 public class AppointmentsController : ControllerBase
 {
     private readonly IAppointmentService appointmentService;
@@ -30,6 +32,7 @@ public class AppointmentsController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = "User,Receptionist,Admin")]
     public ActionResult<Appointment> Create(AppointmentDto dto)
     {
         try
@@ -48,6 +51,7 @@ public class AppointmentsController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Doctor,Receptionist,Admin")]
     public IActionResult Update(int id, AppointmentDto dto)
     {
         try
@@ -65,6 +69,7 @@ public class AppointmentsController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Receptionist,Admin")]
     public IActionResult Delete(int id)
     {
         try { appointmentService.Remove(id); return NoContent(); }

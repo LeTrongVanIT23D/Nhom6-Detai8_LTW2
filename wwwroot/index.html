@@ -27,9 +27,9 @@
     </aside>
 
     <main class="main-content" id="patients">
-      <header class="topbar"><div class="mobile-brand"><span class="brand-mark">+</span> medika</div><div class="date-label">Thứ Hai, 25 tháng 08, 2026</div><div class="top-actions"><button class="icon-button" title="Thông báo">♢<span class="notification"></span></button><button class="avatar small">LT</button></div></header>
+      <header class="topbar"><div class="mobile-brand"><span class="brand-mark">+</span> medika</div><div class="date-label">Thứ Hai, 25 tháng 08, 2026</div><div class="top-actions"><button class="icon-button" title="Thông báo">♢<span class="notification"></span></button><button class="avatar small" id="logout-button" title="Đăng xuất">LT</button></div></header>
       <section class="content">
-        <div class="page-heading"><div><p class="kicker">TỔNG QUAN PHÒNG KHÁM</p><h1>Chào buổi sáng, Lễ tân <span>✦</span></h1><p class="subtitle">Theo dõi hoạt động và hồ sơ bệnh nhân hôm nay.</p></div><button class="primary-button" id="open-add"><span>＋</span> Thêm bệnh nhân</button></div>
+        <div class="page-heading"><div><p class="kicker">TỔNG QUAN PHÒNG KHÁM</p><h1>Chào buổi sáng, <span id="profile-name">Lễ tân</span> <span>✦</span></h1><p class="subtitle">Theo dõi hoạt động và hồ sơ bệnh nhân hôm nay.</p></div><button class="primary-button" id="open-add"><span>＋</span> Thêm bệnh nhân</button></div>
         <div class="stats-grid">
           <article class="stat-card coral"><div class="stat-top"><span>Tổng bệnh nhân</span><span class="stat-icon">♙</span></div><strong id="total-count">0</strong><small><b>+12%</b> so với tháng trước</small></article>
           <article class="stat-card mint"><div class="stat-top"><span>Hồ sơ hôm nay</span><span class="stat-icon">◷</span></div><strong id="today-count">0</strong><small><b>+8%</b> so với hôm qua</small></article>
@@ -45,6 +45,6 @@
 
   <div class="modal hidden" id="patient-modal"><div class="modal-card"><div class="modal-header"><div><p class="kicker">HỒ SƠ BỆNH NHÂN</p><h2 id="modal-title">Thêm bệnh nhân</h2></div><button class="close-button" id="close-modal">×</button></div><form id="patient-form"><input type="hidden" id="patient-id"><div class="form-grid"><label>Họ và tên<input id="full-name" required placeholder="Nguyễn Văn A"></label><label>Ngày sinh<input id="date-of-birth" type="date" required></label><label>Số điện thoại<input id="phone" required placeholder="0901234567"></label><label>Địa chỉ<input id="address" required placeholder="Đà Nẵng"></label><label class="full-width">Tiền sử bệnh<textarea id="medical-history" rows="3" placeholder="Chưa có thông tin"></textarea></label></div><div class="form-actions"><button type="button" class="cancel-button" id="cancel-modal">Hủy</button><button type="submit" class="primary-button">Lưu hồ sơ</button></div></form></div></div>
   <div class="toast" id="toast"></div>
-  <script src="/app.js"></script>
+  <script src="/app-auth.js"></script><script src="/app-page-role.js"></script><script src="/app.js"></script>
 </body>
 </html>

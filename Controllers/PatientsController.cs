@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using StudentManagement.DTOs;
 using StudentManagement.Models;
 using StudentManagement.Services;
@@ -7,6 +8,7 @@ namespace StudentManagement.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = "Receptionist,Admin")]
 public class PatientsController : ControllerBase
 {
     private readonly IPatientManager patientManager;

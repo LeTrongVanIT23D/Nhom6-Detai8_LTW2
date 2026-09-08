@@ -6,4 +6,5 @@ public interface IUserService
 {
     List<UserDto> GetAll();
     UserDto? Login(LoginDto login);
+    UserDto Register(RegisterDto register);
 }

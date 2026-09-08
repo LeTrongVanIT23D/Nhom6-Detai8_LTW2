@@ -1,9 +1,30 @@
-﻿using StudentManagement.Models;
+﻿using Microsoft.AspNetCore.Authentication.Cookies;
+using StudentManagement.Models;
 using StudentManagement.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+	.AddCookie(options =>
+	{
+		options.LoginPath = "/login.html";
+		options.AccessDeniedPath = "/forbidden.html";
+		options.Cookie.Name = "Medika.Auth";
+		options.SlidingExpiration = true;
+		options.ExpireTimeSpan = TimeSpan.FromHours(8);
+		options.Events.OnRedirectToLogin = context =>
+		{
+			context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+			return Task.CompletedTask;
+		};
+		options.Events.OnRedirectToAccessDenied = context =>
+		{
+			context.Response.StatusCode = StatusCodes.Status403Forbidden;
+			return Task.CompletedTask;
+		};
+	});
+builder.Services.AddAuthorization();
 builder.Services.AddSingleton<IUserService, UserService>();
 builder.Services.AddSingleton<IPatientManager>(_ => new PatientManager(
 [
@@ -27,6 +48,46 @@ serviceProvider.GetRequiredService<IDoctorService>()));
 
 var app = builder.Build();
 
+app.UseAuthentication();
+app.UseAuthorization();
+app.Use(async (context, next) =>
+{
+	var path = context.Request.Path.Value?.ToLowerInvariant();
+	var isAuthenticated = context.User.Identity?.IsAuthenticated ?? false;
+	var role = context.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+
+	if ((path is "/" or "/index.html") && !isAuthenticated)
+	{
+		context.Response.Redirect("/login.html");
+		return;
+	}
+
+	if (path is "/admin.html" && (!isAuthenticated || role != "Admin"))
+	{
+		context.Response.Redirect(isAuthenticated ? "/forbidden.html" : "/login.html");
+		return;
+	}
+
+	if (path is "/doctor.html" && (!isAuthenticated || role != "Doctor"))
+	{
+		context.Response.Redirect(isAuthenticated ? "/forbidden.html" : "/login.html");
+		return;
+	}
+
+	if (path is "/user.html" && (!isAuthenticated || role != "User"))
+	{
+		context.Response.Redirect(isAuthenticated ? "/forbidden.html" : "/login.html");
+		return;
+	}
+
+	if ((path is "/" or "/index.html") && role is not ("Receptionist" or "Admin"))
+	{
+		context.Response.Redirect(role == "Doctor" ? "/doctor.html" : "/user.html");
+		return;
+	}
+
+	await next();
+});
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapControllers();
