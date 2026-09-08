@@ -69,7 +69,7 @@ dotnet run --project .\StudentManagement.csproj --launch-profile http
 
 Script sẽ hỏi mật khẩu riêng cho các username `admin`, `doctor`, `letu` và `support`. Sau đó đăng nhập tại `http://localhost:5078/login.html`.
 
-Mật khẩu được lưu ngoài repository bằng .NET User Secrets và chỉ được băm bằng `PasswordHasher` trong bộ nhớ; API không bao giờ trả về mật khẩu hoặc password hash.
+Mật khẩu đặc biệt được lưu ngoài repository bằng .NET User Secrets. Tài khoản đăng ký được lưu local trong `users.json`, file này đã được gitignore và chỉ chứa `PasswordHash`; API không bao giờ trả về mật khẩu hoặc password hash.
 
 Các khu vực riêng:
 

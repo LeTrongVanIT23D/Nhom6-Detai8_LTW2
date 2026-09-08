@@ -1,12 +1,14 @@
 using StudentManagement.DTOs;
 using StudentManagement.Models;
 using Microsoft.AspNetCore.Identity;
+using System.Text.Json;
 
 namespace StudentManagement.Services;
 
 public class UserService : IUserService
 {
     private readonly PasswordHasher<User> passwordHasher = new();
+    private readonly string usersFilePath = Path.Combine(AppContext.BaseDirectory, "users.json");
     private readonly List<User> users =
     [];
 
@@ -16,6 +18,7 @@ public class UserService : IUserService
         SeedSpecialAccount(configuration, "DoctorPassword", "MEDIKA_DOCTOR_PASSWORD", "doctor", "Bác sĩ trực", "Doctor", "doctor@medika.local");
         SeedSpecialAccount(configuration, "ReceptionistPassword", "MEDIKA_RECEPTIONIST_PASSWORD", "letu", "Lê Thu", "Receptionist", "receptionist@medika.local");
         SeedSpecialAccount(configuration, "SupportPassword", "MEDIKA_SUPPORT_PASSWORD", "support", "Nhân viên chăm sóc khách hàng", "Support", "support@medika.local");
+        LoadUsers();
     }
 
     public List<UserDto> GetAll()
@@ -53,6 +56,7 @@ public class UserService : IUserService
         };
 
         users.Add(user);
+        SaveUsers();
         return ToDto(user);
     }
 
@@ -65,6 +69,7 @@ public class UserService : IUserService
             throw new UnauthorizedAccessException("Mật khẩu hiện tại không đúng.");
 
         user.PasswordHash = passwordHasher.HashPassword(user, newPassword);
+        SaveUsers();
         return ToDto(user);
     }
 
@@ -83,6 +88,7 @@ public class UserService : IUserService
         var user = users.FirstOrDefault(item => item.Id == userId)
             ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
         user.Role = allowedRoles.First(item => item.Equals(role, StringComparison.OrdinalIgnoreCase));
+        SaveUsers();
     }
 
     private void SeedSpecialAccount(IConfiguration configuration, string secretKey, string passwordVariable, string username, string fullName, string role, string email)
@@ -94,6 +100,29 @@ public class UserService : IUserService
         var user = new User { Id = users.Count + 1, Username = username, FullName = fullName, Email = email, Role = role };
         user.PasswordHash = passwordHasher.HashPassword(user, password);
         users.Add(user);
+    }
+
+    private void LoadUsers()
+    {
+        if (!File.Exists(usersFilePath))
+            return;
+
+        try
+        {
+            var savedUsers = JsonSerializer.Deserialize<List<User>>(File.ReadAllText(usersFilePath)) ?? [];
+            foreach (var user in savedUsers.Where(saved => !users.Any(existing => existing.Username.Equals(saved.Username, StringComparison.OrdinalIgnoreCase))))
+                users.Add(user);
+        }
+        catch (JsonException)
+        {
+            // Ignore a malformed local data file and keep the configured special accounts available.
+        }
+    }
+
+    private void SaveUsers()
+    {
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        File.WriteAllText(usersFilePath, JsonSerializer.Serialize(users, options));
     }
 
     private static UserDto ToDto(User user)

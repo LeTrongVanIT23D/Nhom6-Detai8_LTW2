@@ -12,6 +12,7 @@ appsettings.Local.json
 
 # Local development files
 students.json
+users.json
 launchSettings.json
 
 # Operating system files
