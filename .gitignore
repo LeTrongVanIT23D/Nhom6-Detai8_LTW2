@@ -1,0 +1,19 @@
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.db
+*.sqlite
+appsettings.Local.json
+
+# Local development files
+students.json
+launchSettings.json
+
+# Operating system files
+.DS_Store
+Thumbs.db
