@@ -22,6 +22,12 @@ Sau khi thấy dòng `Now listening on: http://localhost:5078`, mở trình duy�
 http://localhost:5078/
 ```
 
+Trang Swagger xem và thử API:
+
+```text
+http://localhost:5078/swagger
+```
+
 Hoặc mở tự động bằng một lệnh PowerShell khác:
 
 ```powershell

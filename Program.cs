@@ -7,6 +7,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers().AddJsonOptions(options =>
 	options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
 	.AddCookie(options =>
 	{
@@ -55,6 +57,13 @@ builder.Services.AddSingleton<IScheduleService>(serviceProvider => new ScheduleS
 builder.Services.AddSingleton<ISupportService, SupportService>();
 
 var app = builder.Build();
+
+app.UseSwagger();
+app.UseSwaggerUI(options =>
+{
+	options.SwaggerEndpoint("/swagger/v1/swagger.json", "Medika Clinic API v1");
+	options.RoutePrefix = "swagger";
+});
 
 app.UseAuthentication();
 app.UseAuthorization();
