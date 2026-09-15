@@ -1,5 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
+using StudentManagement.Data;
 using StudentManagement.Models;
 using StudentManagement.Services;
 
@@ -9,6 +11,8 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 	options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddDbContext<ClinicDbContext>(options =>
+	options.UseSqlServer(builder.Configuration.GetConnectionString("ClinicDatabase")));
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
 	.AddCookie(options =>
 	{

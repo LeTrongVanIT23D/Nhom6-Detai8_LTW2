@@ -73,6 +73,17 @@ public class UserService : IUserService
         return ToDto(user);
     }
 
+    public void UpdateProfile(int userId, string fullName, string email)
+    {
+        var user = users.FirstOrDefault(item => item.Id == userId)
+            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
+        if (users.Any(item => item.Id != userId && item.Email.Equals(email, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Email đã được sử dụng.");
+        user.FullName = fullName;
+        user.Email = email;
+        SaveUsers();
+    }
+
     public bool UserExists(string usernameOrEmail)
     {
         return users.Any(item => item.Username.Equals(usernameOrEmail.Trim(), StringComparison.OrdinalIgnoreCase) ||
