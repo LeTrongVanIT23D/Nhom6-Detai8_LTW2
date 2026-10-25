@@ -1,7 +1,9 @@
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using StudentManagement.Data;
 using StudentManagement.DTOs;
 using StudentManagement.Models;
@@ -13,17 +15,26 @@ public class ChatbotService : IChatbotService
     private readonly AppDbContext context;
     private readonly IConfiguration configuration;
     private readonly IHttpClientFactory httpClientFactory;
+    private readonly IMemoryCache memoryCache;
+    private readonly ILogger<ChatbotService> logger;
 
     // Lưu cấu hình động do Admin cập nhật trong runtime
     private static string? dynamicApiKey;
-    private static string dynamicModel = "gemini-1.5-flash";
+    private static string dynamicModel = "gemini-2.5-flash";
     private static bool dynamicIsEnabled = true;
 
-    public ChatbotService(AppDbContext context, IConfiguration configuration, IHttpClientFactory httpClientFactory)
+    public ChatbotService(
+        AppDbContext context,
+        IConfiguration configuration,
+        IHttpClientFactory httpClientFactory,
+        IMemoryCache memoryCache,
+        ILogger<ChatbotService> logger)
     {
         this.context = context;
         this.configuration = configuration;
         this.httpClientFactory = httpClientFactory;
+        this.memoryCache = memoryCache;
+        this.logger = logger;
     }
 
     private string GetActiveApiKey()
@@ -35,7 +46,16 @@ public class ChatbotService : IChatbotService
 
     private string GetActiveModel()
     {
-        return !string.IsNullOrWhiteSpace(dynamicModel) ? dynamicModel : (configuration["Gemini:Model"] ?? "gemini-1.5-flash");
+        var model = !string.IsNullOrWhiteSpace(dynamicModel) ? dynamicModel : (configuration["Gemini:Model"] ?? "gemini-2.5-flash");
+        if (model.Contains('('))
+        {
+            model = model.Split('(')[0].Trim();
+        }
+        if (model.StartsWith("models/"))
+        {
+            model = model["models/".Length..].Trim();
+        }
+        return model.Trim();
     }
 
     private bool IsGeminiEnabled()
@@ -68,7 +88,10 @@ public class ChatbotService : IChatbotService
         }
         if (!string.IsNullOrWhiteSpace(updateDto.Model))
         {
-            dynamicModel = updateDto.Model.Trim();
+            var cleanModel = updateDto.Model.Trim();
+            if (cleanModel.Contains('(')) cleanModel = cleanModel.Split('(')[0].Trim();
+            if (cleanModel.StartsWith("models/")) cleanModel = cleanModel["models/".Length..].Trim();
+            dynamicModel = cleanModel;
         }
         if (updateDto.IsEnabled.HasValue)
         {
@@ -78,42 +101,272 @@ public class ChatbotService : IChatbotService
         return await GetConfigAsync();
     }
 
-    public async Task<bool> TestGeminiConnectionAsync()
+    public async Task<List<string>> GetAvailableModelsAsync()
     {
-        var key = GetActiveApiKey();
-        if (string.IsNullOrWhiteSpace(key)) return false;
+        var apiKey = GetActiveApiKey();
+        if (string.IsNullOrWhiteSpace(apiKey)) return [];
+        return await QueryAvailableModelsAsync(apiKey);
+    }
+
+    private async Task<List<string>> QueryAvailableModelsAsync(string apiKey)
+    {
+        var models = new List<string>();
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+
+            var endpoints = new[]
+            {
+                $"https://generativelanguage.googleapis.com/v1beta/models?key={apiKey}",
+                $"https://generativelanguage.googleapis.com/v1/models?key={apiKey}"
+            };
+
+            foreach (var listUrl in endpoints)
+            {
+                try
+                {
+                    var res = await client.GetAsync(listUrl);
+                    if (res.IsSuccessStatusCode)
+                    {
+                        var body = await res.Content.ReadAsStringAsync();
+                        var node = JsonNode.Parse(body);
+                        var items = node?["models"]?.AsArray();
+                        if (items != null)
+                        {
+                            foreach (var item in items)
+                            {
+                                var name = item?["name"]?.ToString() ?? "";
+                                var methods = item?["supportedGenerationMethods"]?.AsArray();
+                                bool supportsGenerate = methods != null && methods.Any(m => m?.ToString() == "generateContent");
+                                if (supportsGenerate)
+                                {
+                                    var cleanName = name.StartsWith("models/") ? name["models/".Length..] : name;
+                                    if (!models.Contains(cleanName)) models.Add(cleanName);
+                                }
+                            }
+                        }
+                        if (models.Count > 0) break;
+                    }
+                }
+                catch { }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "[Gemini] Không thể lấy danh sách models từ Google");
+        }
+        return models;
+    }
+
+    public async Task<TestConnectionResponseDto> TestGeminiConnectionAsync(string? testApiKey = null, string? testModel = null)
+    {
+        var key = !string.IsNullOrWhiteSpace(testApiKey) ? testApiKey.Trim() : GetActiveApiKey();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("[Gemini Test WARNING] Chưa có API Key để kiểm tra kết nối.");
+            Console.ResetColor();
+            return new TestConnectionResponseDto
+            {
+                Success = false,
+                Message = "Chưa cung cấp API Key. Vui lòng nhập API Key vào ô cấu hình trước khi kiểm tra."
+            };
+        }
+
+        var model = !string.IsNullOrWhiteSpace(testModel) ? testModel.Trim() : GetActiveModel();
+        if (model.Contains('(')) model = model.Split('(')[0].Trim();
+        if (model.StartsWith("models/")) model = model["models/".Length..].Trim();
+
+        Console.WriteLine("\n================== [GEMINI TEST CONNECTION] ==================");
+        Console.WriteLine($"[Gemini Test] Model: {model}");
+        Console.WriteLine($"[Gemini Test] API Key: {(key.Length > 8 ? $"{key[..4]}...{key[^4..]}" : "****")}");
 
         try
         {
             var client = httpClientFactory.CreateClient();
-            var model = GetActiveModel();
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}";
+            client.Timeout = TimeSpan.FromSeconds(20);
 
+            // Payload chuẩn: bắt buộc có role:"user" cho Gemini 2.x
             var requestBody = new
             {
                 contents = new[]
                 {
                     new
                     {
-                        parts = new[]
-                        {
-                            new { text = "Xin chào, hãy trả lời đúng một từ: 'OK'" }
-                        }
+                        role = "user",
+                        parts = new[] { new { text = "Xin chào! Hãy trả lời đúng một từ: 'OK'" } }
                     }
                 }
             };
+            var json = JsonSerializer.Serialize(requestBody);
 
-            var content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
-            var res = await client.PostAsync(url, content);
-            return res.IsSuccessStatusCode;
+            // Helper: thử gọi generateContent theo endpoint đã cho, trả về HttpResponseMessage
+            async Task<(HttpResponseMessage Res, string Body)> TryGenerate(string endpointModel)
+            {
+                var body = new StringContent(json, Encoding.UTF8, "application/json");
+                // Thử v1beta trước
+                var urlBeta = $"https://generativelanguage.googleapis.com/v1beta/models/{endpointModel}:generateContent?key={key}";
+                Console.WriteLine($"[Gemini Test] Thử  → {urlBeta[..urlBeta.IndexOf('?')]}");
+                var r = await client.PostAsync(urlBeta, body);
+                if (r.IsSuccessStatusCode) return (r, await r.Content.ReadAsStringAsync());
+
+                if (r.StatusCode == HttpStatusCode.NotFound)
+                {
+                    // Thử endpoint v1 (GA)
+                    var urlV1 = $"https://generativelanguage.googleapis.com/v1/models/{endpointModel}:generateContent?key={key}";
+                    Console.WriteLine($"[Gemini Test] v1beta→404, thử v1 → {urlV1[..urlV1.IndexOf('?')]}");
+                    var bodyV1 = new StringContent(json, Encoding.UTF8, "application/json");
+                    var r2 = await client.PostAsync(urlV1, bodyV1);
+                    return (r2, await r2.Content.ReadAsStringAsync());
+                }
+
+                return (r, await r.Content.ReadAsStringAsync());
+            }
+
+            var (res, responseBody) = await TryGenerate(model);
+
+            // Nếu vẫn 404: tự động lấy danh sách model khả dụng rồi thử từng model đó
+            var availableModels = new List<string>();
+            string? workingModel = null;
+
+            if (!res.IsSuccessStatusCode && res.StatusCode == HttpStatusCode.NotFound)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine("[Gemini Test] Đang truy vấn ModelService.ListModels để tìm model thực sự khả dụng...");
+                Console.ResetColor();
+
+                availableModels = await QueryAvailableModelsAsync(key);
+                if (availableModels.Count > 0)
+                {
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.WriteLine($"[Gemini Test] Models khả dụng: {string.Join(", ", availableModels)}");
+                    Console.ResetColor();
+
+                    // Tự động thử lần lượt, bỏ qua các model -tts
+                    var candidates = availableModels
+                        .Where(m => !m.EndsWith("-tts", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
+                    foreach (var candidate in candidates)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine($"[Gemini Test] Tự động thử model từ danh sách: {candidate}");
+                        Console.ResetColor();
+
+                        var (retryRes, retryBody) = await TryGenerate(candidate);
+                        if (retryRes.IsSuccessStatusCode)
+                        {
+                            workingModel = candidate;
+                            res = retryRes;
+                            responseBody = retryBody;
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            Console.WriteLine($"[Gemini Test SUCCESS] Model '{candidate}' hoạt động thành công!");
+                            Console.ResetColor();
+                            break;
+                        }
+                        Console.ForegroundColor = ConsoleColor.DarkRed;
+                        Console.WriteLine($"[Gemini Test] Model '{candidate}' → {(int)retryRes.StatusCode} {retryRes.ReasonPhrase}");
+                        Console.ResetColor();
+                    }
+                }
+            }
+
+            if (res.IsSuccessStatusCode)
+            {
+                var confirmedModel = workingModel ?? model;
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[Gemini Test SUCCESS] StatusCode: {(int)res.StatusCode}");
+                Console.WriteLine($"[Gemini Test SUCCESS] Kết nối thành công với model: {confirmedModel}");
+                Console.ResetColor();
+                Console.WriteLine("==============================================================\n");
+
+                // Lưu key và model hoạt động vào runtime
+                if (!string.IsNullOrWhiteSpace(testApiKey))
+                {
+                    dynamicApiKey = key;
+                    dynamicModel = confirmedModel;
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"[Gemini] Đã lưu runtime: key=****...{key[^4..]}, model={confirmedModel}");
+                    Console.ResetColor();
+                }
+
+                var successMsg = workingModel != null && workingModel != model
+                    ? $"Kết nối thành công! Model '{model}' không khả dụng, hệ thống tự động dùng '{confirmedModel}'. Khuyên bạn chọn model này để tiết kiệm thời gian."
+                    : $"Kết nối Google Gemini AI ({confirmedModel}) thành công!";
+
+                return new TestConnectionResponseDto
+                {
+                    Success = true,
+                    StatusCode = (int)res.StatusCode,
+                    Message = successMsg,
+                    AvailableModels = availableModels
+                };
+            }
+
+            // Xử lý lỗi cuối cùng
+            var statusCode = (int)res.StatusCode;
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"[Gemini Test ERROR] StatusCode: {statusCode} ({res.ReasonPhrase})");
+            Console.WriteLine($"[Gemini Test ERROR] Response Body:\n{responseBody}");
+            Console.ResetColor();
+            Console.WriteLine("==============================================================\n");
+
+            logger.LogError("[Gemini Test Error] Status: {StatusCode}, Body: {Body}", statusCode, responseBody);
+
+            string errorMsgFromGoogle = string.Empty;
+            try
+            {
+                var errNode = JsonNode.Parse(responseBody);
+                errorMsgFromGoogle = errNode?["error"]?["message"]?.ToString() ?? string.Empty;
+            }
+            catch { }
+
+            string userFriendlyMsg;
+            if (statusCode == 400)
+                userFriendlyMsg = "Yêu cầu không hợp lệ (400 Bad Request). Vui lòng kiểm tra lại mã Model hoặc định dạng yêu cầu.";
+            else if (statusCode is 401 or 403)
+                userFriendlyMsg = "Khóa API không hợp lệ hoặc bị từ chối (403/401). Vui lòng kiểm tra lại API Key từ Google AI Studio.";
+            else if (statusCode == 404)
+            {
+                if (availableModels.Count > 0)
+                    userFriendlyMsg = $"Không có model nào hoạt động được (404). Danh sách model tài khoản hỗ trợ: {string.Join(", ", availableModels.Where(m => !m.EndsWith("-tts")).Take(4))}. Hãy thử các model này theo thứ tự.";
+                else
+                    userFriendlyMsg = $"Không tìm thấy Model '{model}' (404 Not Found). Vui lòng chọn model khác (ví dụ: gemini-2.5-flash hoặc gemini-2.5-pro).";
+            }
+            else if (statusCode == 429)
+                userFriendlyMsg = "Vượt quá hạn ngạch gọi API (429 Too Many Requests / Quota Exceeded).";
+            else
+                userFriendlyMsg = $"Google API báo lỗi: {statusCode} {res.ReasonPhrase}";
+
+            return new TestConnectionResponseDto
+            {
+                Success = false,
+                StatusCode = statusCode,
+                Message = userFriendlyMsg,
+                ErrorDetails = !string.IsNullOrWhiteSpace(errorMsgFromGoogle) ? errorMsgFromGoogle : responseBody,
+                AvailableModels = availableModels
+            };
         }
-        catch
+        catch (Exception ex)
         {
-            return false;
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"[Gemini Test EXCEPTION] Lỗi kết nối: {ex.Message}");
+            Console.ResetColor();
+            Console.WriteLine("==============================================================\n");
+            logger.LogError(ex, "[Gemini Test Exception] Lỗi kết nối tới Google API");
+
+            return new TestConnectionResponseDto
+            {
+                Success = false,
+                Message = $"Không thể kết nối tới máy chủ Google (Lỗi mạng hoặc Timeout): {ex.Message}",
+                ErrorDetails = ex.Message
+            };
         }
     }
 
-    public async Task<ChatbotMessageResponse> ProcessMessageAsync(string message, int? userId = null)
+
+    public async Task<ChatbotMessageResponse> ProcessMessageAsync(string message, int? userId = null, string? sessionId = null)
     {
         var raw = (message ?? string.Empty).Trim();
         var lower = raw.ToLowerInvariant();
@@ -136,8 +389,61 @@ public class ChatbotService : IChatbotService
             return response;
         }
 
-        // Lấy danh sách bác sĩ từ DB để phục vụ nhận diện và gợi ý
-        var allDoctors = await context.Doctors.AsNoTracking().ToListAsync();
+        // Quản lý bộ nhớ hội thoại (Memory Cache) theo sessionId (SlidingExpiration: 30 phút)
+        var activeSessionId = !string.IsNullOrWhiteSpace(sessionId) ? sessionId.Trim() : Guid.NewGuid().ToString();
+        var cacheKey = $"chatbot_memory_{activeSessionId}";
+        var history = memoryCache.Get<List<GeminiChatMessage>>(cacheKey) ?? new List<GeminiChatMessage>();
+
+        // Đảm bảo không có 2 message 'user' liên tiếp nếu lượt trước bị gián đoạn
+        while (history.Count > 0 && history[^1].Role == "user")
+        {
+            history.RemoveAt(history.Count - 1);
+        }
+
+        // Thêm tin nhắn hiện tại của user vào lịch sử
+        history.Add(new GeminiChatMessage
+        {
+            Role = "user",
+            Parts = new List<GeminiChatPart> { new() { Text = raw } }
+        });
+        memoryCache.Set(cacheKey, history, new MemoryCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(30) });
+
+        // TỐI ƯU HÓA CONTEXT WINDOW (Nhiệm vụ 3):
+        // Loại bỏ việc nhét toàn bộ List<Doctor> vào systemPrompt mặc định.
+        // Chỉ query SQL Server (EF Core) 2-3 bác sĩ phù hợp nhất khi người dùng hỏi về chuyên khoa hoặc tìm bác sĩ.
+        var matchedSpecialty = DetectSpecialty(lower);
+        List<Doctor> relevantDoctors = new();
+
+        if (!string.IsNullOrEmpty(matchedSpecialty))
+        {
+            relevantDoctors = await context.Doctors.AsNoTracking()
+                .Where(d => d.IsActive && d.Specialty.Contains(matchedSpecialty))
+                .OrderByDescending(d => d.ExperienceYears)
+                .Take(3)
+                .ToListAsync();
+        }
+        else if (lower.Contains("bác sĩ") || lower.Contains("chuyên khoa") || lower.Contains("đặt lịch") || lower.Contains("hẹn khám") || lower.Contains("khám"))
+        {
+            var prevUserText = history.Where(h => h.Role == "user").SelectMany(h => h.Parts).LastOrDefault()?.Text?.ToLowerInvariant() ?? "";
+            var prevSpecialty = DetectSpecialty(prevUserText);
+            if (!string.IsNullOrEmpty(prevSpecialty))
+            {
+                relevantDoctors = await context.Doctors.AsNoTracking()
+                    .Where(d => d.IsActive && d.Specialty.Contains(prevSpecialty))
+                    .OrderByDescending(d => d.ExperienceYears)
+                    .Take(3)
+                    .ToListAsync();
+                matchedSpecialty = prevSpecialty;
+            }
+            else
+            {
+                relevantDoctors = await context.Doctors.AsNoTracking()
+                    .Where(d => d.IsActive)
+                    .OrderByDescending(d => d.ExperienceYears)
+                    .Take(3)
+                    .ToListAsync();
+            }
+        }
 
         // Kiểm tra xem có cấu hình Gemini API hay không
         var apiKey = GetActiveApiKey();
@@ -147,23 +453,176 @@ public class ChatbotService : IChatbotService
         {
             try
             {
-                var geminiReply = await CallGeminiApiAsync(raw, allDoctors, apiKey);
-                if (!string.IsNullOrWhiteSpace(geminiReply))
+                var geminiResult = await CallGeminiApiAsync(history, relevantDoctors, apiKey);
+
+                // NHIỆM VỤ 4: Xử lý Function Calling (Tự động đặt lịch khám)
+                if (geminiResult != null && geminiResult.IsFunctionCall && geminiResult.FunctionName == "create_appointment")
                 {
+                    var args = geminiResult.FunctionArgs;
+                    int reqDoctorId = 0;
+                    if (args?["doctorId"] != null)
+                    {
+                        _ = int.TryParse(args["doctorId"]?.ToString(), out reqDoctorId);
+                    }
+                    string dateStr = args?["date"]?.ToString() ?? "";
+                    string reason = args?["reason"]?.ToString() ?? "Khám bệnh theo tư vấn của Medika AI";
+                    int reqPatientId = 0;
+                    if (args?["patientId"] != null)
+                    {
+                        _ = int.TryParse(args["patientId"]?.ToString(), out reqPatientId);
+                    }
+
+                    // 1. Xác thực hoặc gán Bác sĩ phù hợp
+                    var doctor = reqDoctorId > 0 ? await context.Doctors.FindAsync(reqDoctorId) : null;
+                    if (doctor == null)
+                    {
+                        doctor = relevantDoctors.FirstOrDefault() ?? await context.Doctors.FirstOrDefaultAsync(d => d.IsActive);
+                    }
+                    var finalDoctorId = doctor?.Id ?? 1;
+
+                    // 2. Phân tích thời gian hẹn khám
+                    if (!DateTime.TryParse(dateStr, out var appointmentDate) || appointmentDate < DateTime.Now)
+                    {
+                        // Mặc định ngày mai lúc 09:00 nếu không parse được thời gian
+                        appointmentDate = DateTime.Today.AddDays(1).AddHours(9);
+                    }
+
+                    // 3. Xác thực hoặc khởi tạo Hồ sơ Bệnh nhân
+                    int finalPatientId;
+                    if (userId.HasValue && userId.Value > 0)
+                    {
+                        var patient = await context.Patients.FirstOrDefaultAsync(p => p.UserId == userId.Value);
+                        if (patient == null)
+                        {
+                            var user = await context.Users.FindAsync(userId.Value);
+                            patient = new Patient
+                            {
+                                UserId = userId.Value,
+                                FullName = !string.IsNullOrWhiteSpace(user?.FullName) ? user.FullName : (user?.Username ?? "Bệnh nhân"),
+                                DateOfBirth = new DateOnly(1990, 1, 1),
+                                Phone = "0900000000",
+                                Address = "TP. Hồ Chí Minh",
+                                MedicalHistory = "Tạo tự động qua Medika AI"
+                            };
+                            context.Patients.Add(patient);
+                            await context.SaveChangesAsync();
+                        }
+                        finalPatientId = patient.Id;
+                    }
+                    else if (reqPatientId > 0 && await context.Patients.AnyAsync(p => p.Id == reqPatientId))
+                    {
+                        finalPatientId = reqPatientId;
+                    }
+                    else
+                    {
+                        var guestPatient = await context.Patients.FirstOrDefaultAsync(p => p.FullName == "Khách vãng lai (AI Booking)");
+                        if (guestPatient == null)
+                        {
+                            guestPatient = new Patient
+                            {
+                                FullName = "Khách vãng lai (AI Booking)",
+                                DateOfBirth = new DateOnly(1990, 1, 1),
+                                Phone = "19006868",
+                                Address = "Đăng ký trực tuyến",
+                                MedicalHistory = "Khách vãng lai đặt lịch qua Chatbot"
+                            };
+                            context.Patients.Add(guestPatient);
+                            await context.SaveChangesAsync();
+                        }
+                        finalPatientId = guestPatient.Id;
+                    }
+
+                    // 4. Khởi tạo entity Appointment với trạng thái Pending và lưu thẳng vào AppDbContext
+                    var appointment = new Appointment
+                    {
+                        PatientId = finalPatientId,
+                        DoctorId = finalDoctorId,
+                        UserId = userId,
+                        AppointmentDate = appointmentDate,
+                        Reason = reason.Trim(),
+                        Status = AppointmentStatus.Pending,
+                        CreatedAt = DateTime.Now
+                    };
+
+                    context.Appointments.Add(appointment);
+                    await context.SaveChangesAsync();
+
+                    // 5. Chuẩn bị câu trả lời xác nhận và cờ cập nhật UI
+                    var docName = doctor?.FullName ?? $"Bác sĩ #{finalDoctorId}";
+                    var specialty = doctor?.Specialty ?? "Đa khoa";
+                    var room = doctor?.Room ?? "Khu khám bệnh Medika";
+
+                    var confirmationReply = $"🎉 **XÁC NHẬN ĐẶT LỊCH KHÁM THÀNH CÔNG!**\n\n" +
+                                            $"• **Mã lịch hẹn:** #{appointment.Id}\n" +
+                                            $"• **Bác sĩ phụ trách:** {docName} ({specialty} - {room})\n" +
+                                            $"• **Thời gian hẹn:** {appointmentDate:dd/MM/yyyy HH:mm}\n" +
+                                            $"• **Lý do khám:** {reason}\n" +
+                                            $"• **Trạng thái:** ⏳ Chờ xác nhận (Pending)\n\n" +
+                                            $"Phòng khám Đa khoa Medika đã tiếp nhận lịch khám. Nhân viên chăm sóc khách hàng sẽ liên hệ xác nhận trong thời gian sớm nhất. Hệ thống đang tự động làm mới giao diện của bạn!";
+
+                    history.Add(new GeminiChatMessage
+                    {
+                        Role = "model",
+                        Parts = new List<GeminiChatPart> { new() { Text = confirmationReply } }
+                    });
+
+                    if (history.Count > 20) history = history.Skip(history.Count - 20).ToList();
+                    memoryCache.Set(cacheKey, history, new MemoryCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(30) });
+
+                    response.Reply = confirmationReply;
+                    response.Source = "Google Gemini AI (Auto-Booking)";
+                    response.Intent = "appointment_created";
+                    response.ShouldRefreshUi = true;
+                    response.CreatedAppointmentId = appointment.Id;
+                    response.Doctors = doctor != null ? new List<ChatbotDoctorInfo> { ToDoctorInfo(doctor) } : [];
+                    response.QuickActions = new List<ChatbotQuickAction>
+                    {
+                        new() { Label = "📋 Xem lịch hẹn của tôi", ActionType = "info", Value = "Lịch của tôi" },
+                        new() { Label = "💬 Nhắn tin lễ tân hỗ trợ", ActionType = "support" }
+                    };
+
+                    return response;
+                }
+
+                // Xử lý phản hồi dạng Text thông thường
+                if (geminiResult != null && !string.IsNullOrWhiteSpace(geminiResult.Text))
+                {
+                    var geminiReply = geminiResult.Text;
+                    history.Add(new GeminiChatMessage
+                    {
+                        Role = "model",
+                        Parts = new List<GeminiChatPart> { new() { Text = geminiReply } }
+                    });
+
+                    if (history.Count > 20) history = history.Skip(history.Count - 20).ToList();
+                    memoryCache.Set(cacheKey, history, new MemoryCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(30) });
+
                     response.Reply = geminiReply;
                     response.Source = "Google Gemini AI";
                     response.Intent = "ai_consultation";
 
-                    // Gợi ý bác sĩ liên quan nếu câu hỏi hoặc câu trả lời đề cập đến chuyên khoa
-                    var matchedSpecialty = DetectSpecialty(lower) ?? DetectSpecialty(geminiReply.ToLowerInvariant());
+                    // Gợi ý bác sĩ nếu có trong danh sách truy vấn phù hợp hoặc nhận diện chuyên khoa
+                    if (relevantDoctors.Count > 0)
+                    {
+                        response.Doctors = relevantDoctors.Select(ToDoctorInfo).ToList();
+                    }
+                    else
+                    {
+                        var detected = DetectSpecialty(lower) ?? DetectSpecialty(geminiReply.ToLowerInvariant());
+                        if (!string.IsNullOrEmpty(detected))
+                        {
+                            var docs = await context.Doctors.AsNoTracking()
+                                .Where(d => d.IsActive && d.Specialty.Contains(detected))
+                                .OrderByDescending(d => d.ExperienceYears)
+                                .Take(3)
+                                .ToListAsync();
+                            response.Doctors = docs.Select(ToDoctorInfo).ToList();
+                            matchedSpecialty = detected;
+                        }
+                    }
+
                     if (!string.IsNullOrEmpty(matchedSpecialty))
                     {
-                        var relevantDocs = allDoctors
-                            .Where(d => d.Specialty.Contains(matchedSpecialty, StringComparison.OrdinalIgnoreCase))
-                            .Select(ToDoctorInfo)
-                            .ToList();
-
-                        response.Doctors = relevantDocs;
                         response.QuickActions.Add(new ChatbotQuickAction
                         {
                             Label = $"📅 Đặt lịch khám {matchedSpecialty}",
@@ -176,54 +635,134 @@ public class ChatbotService : IChatbotService
                     return response;
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Nếu Gemini lỗi mạng, tự động fallback xuống bộ xử lý nội bộ
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[ChatbotService ProcessMessage EXCEPTION]: {ex.Message}");
+                Console.ResetColor();
+                logger.LogError(ex, "Lỗi ngoại lệ khi gọi CallGeminiApiAsync");
             }
+        }
+        else
+        {
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.WriteLine($"[ChatbotService] Gemini chưa sẵn sàng (HasKey: {!string.IsNullOrWhiteSpace(apiKey)}, IsEnabled: {IsGeminiEnabled()}). Tự động dùng fallback nội bộ Medika.");
+            Console.ResetColor();
         }
 
         // 2. Fallback xử lý thông minh nội bộ của Medika
-        return await ProcessInternalFallbackAsync(raw, lower, userId, allDoctors);
+        var fallbackResponse = await ProcessInternalFallbackAsync(raw, lower, userId, relevantDoctors);
+
+        if (!string.IsNullOrWhiteSpace(fallbackResponse.Reply))
+        {
+            history.Add(new GeminiChatMessage
+            {
+                Role = "model",
+                Parts = new List<GeminiChatPart> { new() { Text = fallbackResponse.Reply } }
+            });
+
+            if (history.Count > 20) history = history.Skip(history.Count - 20).ToList();
+            memoryCache.Set(cacheKey, history, new MemoryCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(30) });
+        }
+
+        return fallbackResponse;
     }
 
-    private async Task<string?> CallGeminiApiAsync(string userMessage, List<Doctor> doctors, string apiKey)
+    private async Task<GeminiCallResult?> CallGeminiApiAsync(List<GeminiChatMessage> history, List<Doctor> relevantDoctors, string apiKey)
     {
         var client = httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(15);
+        client.Timeout = TimeSpan.FromSeconds(20);
         var model = GetActiveModel();
         var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
 
-        var doctorSummary = string.Join("; ", doctors.Select(d => $"{d.FullName} (Chuyên khoa: {d.Specialty}, Phòng: {d.Room})"));
-
+        // Tối ưu hóa Context Window: Hệ thống không còn nhồi nhét toàn bộ bác sĩ vào prompt mặc định
         var systemPrompt = $@"Bạn là Medika AI - Trợ lý Y tế & Đặt lịch thông minh của Phòng khám Đa khoa Quốc tế Medika.
 Thông tin phòng khám:
 - Địa chỉ: Tòa nhà Medika Clinic, Số 88 Đường Y Dược, Quận 1, TP. Hồ Chí Minh.
 - Giờ làm việc: Thứ Hai - Chủ Nhật từ 07:00 đến 20:00 (làm việc thông trưa). Cấp cứu tiếp nhận 24/7.
 - Hotline: 1900 6868.
 - Tiếp nhận BHYT toàn quốc (đúng tuyến 80-100%) và bảo lãnh hơn 25 công ty bảo hiểm tư nhân.
-- Danh sách các bác sĩ và chuyên khoa hiện có tại phòng khám: {doctorSummary}.
+- Các chuyên khoa tại phòng khám: Tim mạch, Tiêu hóa - Gan mật, Nhi khoa, Sản phụ khoa, Da liễu, Cơ xương khớp, Tai Mũi Họng, Mắt, Nội tổng quát.
+- Ngày giờ hiện tại của hệ thống: {DateTime.Now:yyyy-MM-dd (dddd, HH:mm)}.
 
 Nhiệm vụ của bạn:
 1. Trả lời bằng tiếng Việt ân cần, chuyên nghiệp, chuẩn mực y khoa, dùng định dạng Markdown rõ ràng, dễ đọc.
 2. Khi người dùng mô tả triệu chứng, hãy giải thích nguyên nhân sơ bộ có thể gặp, tư vấn chuyên khoa phù hợp và gợi ý bác sĩ tại phòng khám để người dùng đặt lịch khám.
 3. Khi người dùng hỏi về thủ tục, BHYT, giá cả, giờ khám, hãy hướng dẫn tận tình, súc tích.
-4. Luôn thêm một lưu ý ngắn gọn ở cuối rằng lời khuyên chỉ mang tính tham khảo và khuyên người bệnh nên đến khám trực tiếp để được chẩn đoán chính xác.";
+4. Ghi nhớ ngữ cảnh các câu hỏi và câu trả lời trước đó trong cuộc hội thoại để phản hồi tự nhiên, liền mạch và chính xác.
+5. Khi người dùng đồng ý chốt thời gian, hãy gọi hàm create_appointment thay vì trả lời text thông thường.
+6. Luôn thêm một lưu ý ngắn gọn ở cuối rằng lời khuyên chỉ mang tính tham khảo và khuyên người bệnh nên đến khám trực tiếp để được chẩn đoán chính xác.";
+
+        // Nếu người dùng hỏi về chuyên khoa hoặc tìm bác sĩ, chèn 2-3 bác sĩ phù hợp nhất vào prompt
+        if (relevantDoctors.Count > 0)
+        {
+            var doctorLines = string.Join("\n", relevantDoctors.Select(d =>
+                $"- Bác sĩ ID: {d.Id} | Họ tên: {d.FullName} | Chuyên khoa: {d.Specialty} | Học vị: {d.Degree} | Kinh nghiệm: {d.ExperienceYears} năm | Phòng: {d.Room}"));
+            systemPrompt += $"\n\n[DANH SÁCH BÁC SĨ PHÙ HỢP HIỆN CÓ ĐỂ TƯ VẤN & ĐẶT LỊCH]:\n{doctorLines}\n(Gợi ý bệnh nhân chọn bác sĩ và sử dụng đúng ID của bác sĩ này khi gọi hàm create_appointment).";
+        }
+
+        // Khai báo tool create_appointment cho Function Calling
+        var tools = new object[]
+        {
+            new
+            {
+                function_declarations = new object[]
+                {
+                    new
+                    {
+                        name = "create_appointment",
+                        description = "Tạo lịch hẹn khám bệnh mới cho bệnh nhân với bác sĩ tại phòng khám Medika khi người dùng chốt thời gian hoặc đồng ý đặt lịch.",
+                        parameters = new
+                        {
+                            type = "OBJECT",
+                            properties = new
+                            {
+                                patientId = new
+                                {
+                                    type = "INTEGER",
+                                    description = "Mã ID hồ sơ bệnh nhân (truyền 0 nếu hệ thống tự động gán theo tài khoản đang đăng nhập)"
+                                },
+                                doctorId = new
+                                {
+                                    type = "INTEGER",
+                                    description = "Mã ID của bác sĩ được chọn khám (lấy từ danh sách bác sĩ phù hợp được cung cấp)"
+                                },
+                                date = new
+                                {
+                                    type = "STRING",
+                                    description = "Thời gian hẹn khám định dạng chuẩn ISO hoặc YYYY-MM-DD HH:mm (ví dụ: '2026-10-26 09:00')"
+                                },
+                                reason = new
+                                {
+                                    type = "STRING",
+                                    description = "Lý do khám hoặc triệu chứng bệnh nhân mô tả"
+                                }
+                            },
+                            required = new[] { "doctorId", "date", "reason" }
+                        }
+                    }
+                }
+            }
+        };
 
         var requestBody = new
         {
-            contents = new[]
+            system_instruction = new
             {
-                new
+                parts = new[]
                 {
-                    parts = new[]
-                    {
-                        new { text = $"{systemPrompt}\n\nNgười dùng hỏi: {userMessage}" }
-                    }
+                    new { text = systemPrompt }
                 }
             },
+            contents = history.Select(h => new
+            {
+                role = h.Role,
+                parts = h.Parts.Select(p => new { text = p.Text }).ToArray()
+            }).ToArray(),
+            tools = tools,
             generationConfig = new
             {
-                temperature = 0.5,
+                temperature = 0.3,
                 maxOutputTokens = 800
             }
         };
@@ -232,18 +771,102 @@ Nhiệm vụ của bạn:
         var httpContent = new StringContent(json, Encoding.UTF8, "application/json");
 
         var response = await client.PostAsync(url, httpContent);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            var v1Url = $"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={apiKey}";
+            var v1Res = await client.PostAsync(v1Url, httpContent);
+            if (v1Res.IsSuccessStatusCode)
+            {
+                var v1String = await v1Res.Content.ReadAsStringAsync();
+                return ParseGeminiResponse(v1String);
+            }
+        }
+
         if (!response.IsSuccessStatusCode)
         {
-            return null;
+            var errorBody = await response.Content.ReadAsStringAsync();
+            var statusCode = (int)response.StatusCode;
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"\n[Gemini Call ERROR] StatusCode: {statusCode} ({response.ReasonPhrase})");
+            Console.WriteLine($"[Gemini Call ERROR] URL: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
+            Console.WriteLine($"[Gemini Call ERROR] Response Body:\n{errorBody}\n");
+            Console.ResetColor();
+
+            logger.LogError("[Gemini Call Error] Status: {StatusCode}, Body: {Body}", statusCode, errorBody);
+
+            // Dự phòng nếu model endpoint không hỗ trợ system_instruction hoặc tools, gộp systemPrompt vào tin nhắn đầu
+            var fallbackContents = history.Select((h, idx) => new
+            {
+                role = h.Role,
+                parts = idx == 0 && h.Role == "user"
+                    ? new[] { new { text = $"{systemPrompt}\n\n{h.Parts.FirstOrDefault()?.Text}" } }
+                    : h.Parts.Select(p => new { text = p.Text }).ToArray()
+            }).ToArray();
+
+            var fallbackBody = new
+            {
+                contents = fallbackContents,
+                generationConfig = new
+                {
+                    temperature = 0.3,
+                    maxOutputTokens = 800
+                }
+            };
+
+            var fallbackRes = await client.PostAsync(url, new StringContent(JsonSerializer.Serialize(fallbackBody), Encoding.UTF8, "application/json"));
+            if (!fallbackRes.IsSuccessStatusCode)
+            {
+                var fallbackErr = await fallbackRes.Content.ReadAsStringAsync();
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[Gemini Fallback Call ERROR] StatusCode: {(int)fallbackRes.StatusCode} ({fallbackRes.ReasonPhrase})");
+                Console.WriteLine($"[Gemini Fallback Call ERROR] Response Body:\n{fallbackErr}\n");
+                Console.ResetColor();
+
+                logger.LogError("[Gemini Fallback Call Error] Status: {StatusCode}, Body: {Body}", (int)fallbackRes.StatusCode, fallbackErr);
+                return null;
+            }
+
+            var fallbackStr = await fallbackRes.Content.ReadAsStringAsync();
+            return ParseGeminiResponse(fallbackStr);
         }
 
         var resString = await response.Content.ReadAsStringAsync();
-        var doc = JsonNode.Parse(resString);
-        var text = doc?["candidates"]?[0]?["content"]?["parts"]?[0]?["text"]?.ToString();
-        return text;
+        return ParseGeminiResponse(resString);
     }
 
-    private async Task<ChatbotMessageResponse> ProcessInternalFallbackAsync(string raw, string lower, int? userId, List<Doctor> allDoctors)
+    private static GeminiCallResult? ParseGeminiResponse(string jsonResponse)
+    {
+        try
+        {
+            var doc = JsonNode.Parse(jsonResponse);
+            var parts = doc?["candidates"]?[0]?["content"]?["parts"]?.AsArray();
+            if (parts == null || parts.Count == 0) return null;
+
+            foreach (var part in parts)
+            {
+                if (part?["functionCall"] != null)
+                {
+                    var fc = part["functionCall"];
+                    return new GeminiCallResult
+                    {
+                        IsFunctionCall = true,
+                        FunctionName = fc?["name"]?.ToString(),
+                        FunctionArgs = fc?["args"]
+                    };
+                }
+            }
+
+            var textPart = parts.FirstOrDefault(p => p?["text"] != null);
+            var text = textPart?["text"]?.ToString();
+            return new GeminiCallResult { Text = text };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<ChatbotMessageResponse> ProcessInternalFallbackAsync(string raw, string lower, int? userId, List<Doctor> doctors)
     {
         var response = new ChatbotMessageResponse
         {
@@ -269,15 +892,20 @@ Nhiệm vụ của bạn:
         if (!string.IsNullOrEmpty(matchedSpecialty))
         {
             response.Intent = "specialty_recommendation";
-            var docs = allDoctors
-                .Where(d => d.Specialty.Contains(matchedSpecialty, StringComparison.OrdinalIgnoreCase))
-                .Select(ToDoctorInfo)
-                .ToList();
+            var docs = doctors.Where(d => d.Specialty.Contains(matchedSpecialty, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (docs.Count == 0)
+            {
+                docs = await context.Doctors.AsNoTracking()
+                    .Where(d => d.IsActive && d.Specialty.Contains(matchedSpecialty))
+                    .OrderByDescending(d => d.ExperienceYears)
+                    .Take(3)
+                    .ToListAsync();
+            }
 
-            response.Doctors = docs;
+            response.Doctors = docs.Select(ToDoctorInfo).ToList();
             response.Reply = $"Với nhu cầu hoặc triệu chứng bạn mô tả, chuyên khoa phù hợp nhất là: **Khoa {matchedSpecialty}**.\n\n" +
                              (docs.Any()
-                                 ? $"Hiện phòng khám có {docs.Count} bác sĩ đang tiếp nhận khám khoa này:"
+                                 ? $"Hiện phòng khám có {docs.Count} bác sĩ chuyên khoa này sẵn sàng tiếp nhận khám:"
                                  : "Hiện bạn có thể đặt lịch khám với bác sĩ chuyên khoa này tại quầy hoặc chọn giờ khám.");
 
             response.QuickActions = new List<ChatbotQuickAction>
@@ -326,7 +954,8 @@ Nhiệm vụ của bạn:
         if (lower.Contains("bác sĩ") || lower.Contains("danh sách bác sĩ") || lower.Contains("chuyên khoa nào"))
         {
             response.Intent = "doctors_list";
-            response.Doctors = allDoctors.Take(5).Select(ToDoctorInfo).ToList();
+            var docs = doctors.Any() ? doctors : await context.Doctors.AsNoTracking().Where(d => d.IsActive).OrderByDescending(d => d.ExperienceYears).Take(3).ToListAsync();
+            response.Doctors = docs.Take(3).Select(ToDoctorInfo).ToList();
             response.Reply = "Dưới đây là một số bác sĩ chuyên khoa tiêu biểu tại Medika. Bạn có thể nhấn vào để đặt lịch:";
             response.QuickActions = new List<ChatbotQuickAction>
             {
@@ -453,4 +1082,23 @@ Nhiệm vụ của bạn:
 
         return null;
     }
+}
+
+public class GeminiChatMessage
+{
+    public string Role { get; set; } = "user";
+    public List<GeminiChatPart> Parts { get; set; } = new();
+}
+
+public class GeminiChatPart
+{
+    public string Text { get; set; } = string.Empty;
+}
+
+public class GeminiCallResult
+{
+    public string? Text { get; set; }
+    public bool IsFunctionCall { get; set; }
+    public string? FunctionName { get; set; }
+    public JsonNode? FunctionArgs { get; set; }
 }

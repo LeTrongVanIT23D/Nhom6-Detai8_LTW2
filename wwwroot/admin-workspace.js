@@ -705,7 +705,7 @@ async function loadGeminiConfig() {
   try {
     const config = await request('/api/chatbot/config');
     if (document.querySelector('#gemini-model')) {
-      document.querySelector('#gemini-model').value = config.model || 'gemini-1.5-flash';
+      document.querySelector('#gemini-model').value = config.model || 'gemini-2.5-flash';
     }
     if (document.querySelector('#gemini-enabled')) {
       document.querySelector('#gemini-enabled').checked = config.isEnabled !== false;
@@ -738,7 +738,7 @@ document.querySelector('#gemini-config-form')?.addEventListener('submit', async 
     geminiMsg.style.color = '#0284c7';
     geminiMsg.textContent = 'Đang lưu cấu hình...';
 
-    const apiKeyInput = document.querySelector('#gemini-api-key').value.trim();
+    const apiKeyInput = (document.querySelector('#gemini-api-key')?.value || '').trim();
     const model = document.querySelector('#gemini-model').value;
     const isEnabled = document.querySelector('#gemini-enabled').checked;
 
@@ -766,13 +766,44 @@ document.querySelector('#btn-test-gemini')?.addEventListener('click', async () =
     geminiMsg.style.color = '#0284c7';
     geminiMsg.textContent = 'Đang kiểm tra kết nối tới Google Gemini...';
 
-    const res = await request('/api/chatbot/test-connection', { method: 'POST' });
+    const apiKeyInput = (document.querySelector('#gemini-api-key')?.value || '').trim();
+    const model = document.querySelector('#gemini-model').value;
+
+    const payload = {};
+    if (apiKeyInput) payload.apiKey = apiKeyInput;
+    if (model) payload.model = model;
+
+    const res = await request('/api/chatbot/test-connection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (res.availableModels && Array.isArray(res.availableModels) && res.availableModels.length > 0) {
+      const select = document.querySelector('#gemini-model');
+      if (select) {
+        const existingValues = new Set(Array.from(select.options).map(o => o.value));
+        res.availableModels.forEach(m => {
+          if (!existingValues.has(m)) {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = `${m} (Khả dụng từ tài khoản của bạn)`;
+            select.appendChild(opt);
+          }
+        });
+      }
+    }
+
     if (res.success) {
       geminiMsg.style.color = '#059669';
       geminiMsg.textContent = '✓ ' + res.message;
     } else {
       geminiMsg.style.color = '#dc2626';
-      geminiMsg.textContent = '✕ ' + res.message;
+      let msg = '✕ ' + (res.message || 'Không thể kết nối');
+      if (res.errorDetails) {
+        msg += ' [Google: ' + res.errorDetails + ']';
+      }
+      geminiMsg.textContent = msg;
     }
     await loadGeminiConfig();
   } catch (err) {

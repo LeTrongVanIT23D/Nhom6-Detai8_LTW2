@@ -7,7 +7,7 @@ namespace StudentManagement.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin")]
+
 public class UsersController : ControllerBase
 {
     private readonly IUserService userService;
@@ -45,6 +45,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<UserDto>> UpdateUser(int id, [FromBody] UpdateUserDto dto)
     {
         try
@@ -64,6 +65,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    
     public async Task<IActionResult> DeleteUser(int id)
     {
         try
@@ -88,6 +90,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPatch("{id:int}/lock")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> LockUser(int id, [FromBody] LockRequest req)
     {
         try
@@ -108,6 +111,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPost("{id:int}/reset-password")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> ResetPassword(int id, [FromBody] ResetPasswordRequest req)
     {
         try
@@ -123,6 +127,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPatch("{id:int}/role")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateRole(int id, [FromBody] string role)
     {
         try

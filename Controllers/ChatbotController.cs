@@ -31,7 +31,7 @@ public class ChatbotController : ControllerBase
             userId = uid;
         }
 
-        var response = await chatbotService.ProcessMessageAsync(request.Message, userId);
+        var response = await chatbotService.ProcessMessageAsync(request.Message, userId, request.SessionId);
         return Ok(response);
     }
 
@@ -71,13 +71,20 @@ public class ChatbotController : ControllerBase
     /// </summary>
     [HttpPost("test-connection")]
     [Authorize(Roles = "Admin")]
-    public async Task<ActionResult> TestConnection()
+    public async Task<ActionResult<TestConnectionResponseDto>> TestConnection([FromBody] TestConnectionRequestDto? request = null)
     {
-        var success = await chatbotService.TestGeminiConnectionAsync();
-        return Ok(new
-        {
-            success,
-            message = success ? "Kết nối Google Gemini AI thành công!" : "Không thể kết nối tới Google Gemini API. Vui lòng kiểm tra lại API Key hoặc mạng."
-        });
+        var result = await chatbotService.TestGeminiConnectionAsync(request?.ApiKey, request?.Model);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Admin lấy danh sách các model Gemini được Google hỗ trợ cho API Key hiện tại.
+    /// </summary>
+    [HttpGet("available-models")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<List<string>>> GetAvailableModels()
+    {
+        var models = await chatbotService.GetAvailableModelsAsync();
+        return Ok(models);
     }
 }
