@@ -8,6 +8,7 @@ namespace StudentManagement.Services;
 public class FileService : IFileService
 {
     private readonly IFileRepository _fileRepository;
+    private const long MaxFileSizeInBytes = 1 * 1024 * 1024; // 1 MB = 1,048,576 bytes
 
     public FileService(IFileRepository fileRepository)
     {
@@ -18,6 +19,9 @@ public class FileService : IFileService
     {
         if (file == null || file.Length == 0)
             throw new ArgumentException("File không hợp lệ.");
+
+        if (file.Length > MaxFileSizeInBytes)
+            throw new ArgumentException("Dung lượng file vượt quá giới hạn cho phép (tối đa 1MB).");
 
         using var memoryStream = new MemoryStream();
         await file.CopyToAsync(memoryStream);
@@ -54,4 +58,3 @@ public class FileService : IFileService
         };
     }
 }
-
