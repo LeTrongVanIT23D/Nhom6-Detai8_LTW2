@@ -85,6 +85,8 @@ public class AuthController : ControllerBase
             new(ClaimTypes.GivenName, user.FullName),
             new(ClaimTypes.Role, user.Role)
         };
+        if (user.DoctorId.HasValue)
+            claims.Add(new Claim("doctor_id", user.DoctorId.Value.ToString()));
 
         await HttpContext.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
@@ -102,7 +104,8 @@ public class AuthController : ControllerBase
         {
             username = User.Identity?.Name,
             fullName = User.FindFirstValue(ClaimTypes.GivenName),
-            role = User.FindFirstValue(ClaimTypes.Role)
+            role = User.FindFirstValue(ClaimTypes.Role),
+            doctorId = int.TryParse(User.FindFirstValue("doctor_id"), out var doctorId) ? doctorId : (int?)null
         });
     }
 

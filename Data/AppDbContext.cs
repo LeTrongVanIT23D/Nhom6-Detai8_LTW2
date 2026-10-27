@@ -34,6 +34,17 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.HasOne<Doctor>()
+                .WithMany()
+                .HasForeignKey(user => user.DoctorId)
+                .OnDelete(DeleteBehavior.NoAction);
+            entity.HasIndex(user => user.DoctorId)
+                .IsUnique()
+                .HasFilter("[DoctorId] IS NOT NULL");
+        });
+
         modelBuilder.Entity<Appointment>(entity =>
         {
             entity.Property(a => a.Status)

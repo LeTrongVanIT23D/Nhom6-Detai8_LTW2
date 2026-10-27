@@ -8,6 +8,6 @@ public interface IChatbotService
     List<ChatbotQuickAction> GetSuggestedPrompts();
     Task<ChatbotConfigDto> GetConfigAsync();
     Task<ChatbotConfigDto> UpdateConfigAsync(UpdateChatbotConfigDto updateDto);
-    Task<TestConnectionResponseDto> TestGeminiConnectionAsync(string? testApiKey = null, string? testModel = null);
-    Task<List<string>> GetAvailableModelsAsync();
+    Task<TestConnectionResponseDto> TestConnectionAsync(string? provider, string? testApiKey, string? testModel, string? accountId);
+    Task<List<string>> GetAvailableModelsAsync(string? provider = null, string? accountId = null);
 }

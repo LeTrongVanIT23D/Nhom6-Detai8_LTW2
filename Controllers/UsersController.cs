@@ -7,7 +7,7 @@ namespace StudentManagement.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-
+[Authorize(Roles = "Admin")]
 public class UsersController : ControllerBase
 {
     private readonly IUserService userService;
@@ -138,6 +138,18 @@ public class UsersController : ControllerBase
         }
         catch (ArgumentException exception) { return BadRequest(new { message = exception.Message }); }
         catch (KeyNotFoundException exception) { return NotFound(new { message = exception.Message }); }
+    }
+
+    [HttpPatch("{id:int}/doctor")]
+    public IActionResult AssignDoctor(int id, [FromBody] AssignDoctorDto dto)
+    {
+        try
+        {
+            userService.AssignDoctor(id, dto.DoctorId);
+            return NoContent();
+        }
+        catch (KeyNotFoundException exception) { return NotFound(new { message = exception.Message }); }
+        catch (InvalidOperationException exception) { return Conflict(new { message = exception.Message }); }
     }
 
     [AllowAnonymous]

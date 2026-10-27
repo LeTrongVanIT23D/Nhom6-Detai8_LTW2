@@ -46,7 +46,7 @@ public class ChatbotController : ControllerBase
     }
 
     /// <summary>
-    /// Admin xem cấu hình hiện tại của Google Gemini AI Chatbot.
+    /// Admin xem cấu hình nhà cung cấp AI của Chatbot.
     /// </summary>
     [HttpGet("config")]
     [Authorize(Roles = "Admin")]
@@ -56,7 +56,7 @@ public class ChatbotController : ControllerBase
     }
 
     /// <summary>
-    /// Admin cập nhật API Key hoặc Model của Google Gemini AI.
+    /// Admin cập nhật nhà cung cấp, API Key hoặc Model của Chatbot AI.
     /// </summary>
     [HttpPost("config")]
     [Authorize(Roles = "Admin")]
@@ -67,24 +67,28 @@ public class ChatbotController : ControllerBase
     }
 
     /// <summary>
-    /// Admin kiểm tra kết nối với Google Gemini API.
+    /// Admin kiểm tra kết nối với nhà cung cấp AI đã chọn.
     /// </summary>
     [HttpPost("test-connection")]
     [Authorize(Roles = "Admin")]
     public async Task<ActionResult<TestConnectionResponseDto>> TestConnection([FromBody] TestConnectionRequestDto? request = null)
     {
-        var result = await chatbotService.TestGeminiConnectionAsync(request?.ApiKey, request?.Model);
+        var result = await chatbotService.TestConnectionAsync(
+            request?.Provider,
+            request?.ApiKey,
+            request?.Model,
+            request?.AccountId);
         return Ok(result);
     }
 
     /// <summary>
-    /// Admin lấy danh sách các model Gemini được Google hỗ trợ cho API Key hiện tại.
+    /// Admin lấy danh sách model được nhà cung cấp hiện tại hỗ trợ.
     /// </summary>
     [HttpGet("available-models")]
     [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<List<string>>> GetAvailableModels()
+    public async Task<ActionResult<List<string>>> GetAvailableModels([FromQuery] string? provider = null, [FromQuery] string? accountId = null)
     {
-        var models = await chatbotService.GetAvailableModelsAsync();
+        var models = await chatbotService.GetAvailableModelsAsync(provider, accountId);
         return Ok(models);
     }
 }

@@ -153,6 +153,15 @@ using (var scope = app.Services.CreateScope())
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'CreatedAt')
             ALTER TABLE Users ADD CreatedAt DATETIME2 NOT NULL DEFAULT GETDATE();
 
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'DoctorId')
+            ALTER TABLE Users ADD DoctorId INT NULL;
+
+        IF NOT EXISTS (SELECT * FROM sys.foreign_keys WHERE name = 'FK_Users_Doctors_DoctorId')
+            EXEC(N'ALTER TABLE Users ADD CONSTRAINT FK_Users_Doctors_DoctorId FOREIGN KEY (DoctorId) REFERENCES Doctors(Id)');
+
+        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Users_DoctorId' AND object_id = OBJECT_ID('Users'))
+            EXEC(N'CREATE UNIQUE INDEX IX_Users_DoctorId ON Users(DoctorId) WHERE DoctorId IS NOT NULL');
+
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Patients') AND name = 'InsuranceNumber')
             ALTER TABLE Patients ADD InsuranceNumber NVARCHAR(MAX) NOT NULL DEFAULT '';
 
@@ -185,8 +194,23 @@ using (var scope = app.Services.CreateScope())
                 PerformedBy NVARCHAR(MAX) NOT NULL,
                 Role NVARCHAR(MAX) NOT NULL,
                 Details NVARCHAR(MAX) NOT NULL,
-                Timestamp DATETIME2 NOT NULL DEFAULT GETDATE()
+                CreatedAt DATETIME2 NOT NULL DEFAULT GETDATE()
             );
+        END;
+
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AuditLogs') AND name = 'CreatedAt')
+        BEGIN
+            IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AuditLogs') AND name = 'Timestamp')
+            BEGIN
+                EXEC(N'ALTER TABLE AuditLogs ADD CreatedAt DATETIME2 NULL');
+                EXEC(N'UPDATE AuditLogs SET CreatedAt = [Timestamp] WHERE CreatedAt IS NULL');
+                EXEC(N'ALTER TABLE AuditLogs ALTER COLUMN CreatedAt DATETIME2 NOT NULL');
+                EXEC(N'ALTER TABLE AuditLogs ADD CONSTRAINT DF_AuditLogs_CreatedAt DEFAULT GETDATE() FOR CreatedAt');
+            END
+            ELSE
+            BEGIN
+                ALTER TABLE AuditLogs ADD CreatedAt DATETIME2 NOT NULL DEFAULT GETDATE();
+            END;
         END;
 
         IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Invoices')

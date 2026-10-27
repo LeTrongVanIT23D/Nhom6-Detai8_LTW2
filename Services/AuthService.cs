@@ -120,6 +120,7 @@ public class AuthService : IAuthService
         Role = user.Role,
         Email = user.Email,
         IsLocked = user.IsLocked,
+        DoctorId = user.DoctorId,
         CreatedAt = user.CreatedAt
     };
 }

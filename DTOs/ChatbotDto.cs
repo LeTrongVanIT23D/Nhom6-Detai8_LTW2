@@ -37,9 +37,10 @@ public class ChatbotConfigDto
 {
     public string ApiKeyMasked { get; set; } = string.Empty;
     public string Model { get; set; } = "gemini-2.5-flash";
+    public string Provider { get; set; } = "Gemini";
+    public string AccountId { get; set; } = string.Empty;
     public bool IsEnabled { get; set; } = true;
     public bool HasKey { get; set; }
-    public string Provider { get; set; } = "Internal";
     public List<string> AvailableModels { get; set; } = [];
 }
 
@@ -47,6 +48,8 @@ public class UpdateChatbotConfigDto
 {
     public string? ApiKey { get; set; }
     public string? Model { get; set; }
+    public string? Provider { get; set; }
+    public string? AccountId { get; set; }
     public bool? IsEnabled { get; set; }
 }
 
@@ -54,6 +57,8 @@ public class TestConnectionRequestDto
 {
     public string? ApiKey { get; set; }
     public string? Model { get; set; }
+    public string? Provider { get; set; }
+    public string? AccountId { get; set; }
 }
 
 public class TestConnectionResponseDto

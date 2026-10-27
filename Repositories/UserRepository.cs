@@ -23,6 +23,11 @@ public class UserRepository : IUserRepository
         return context.Users.Any(user => user.Username.ToLower() == normalizedUsername);
     }
 
+    public bool DoctorExists(int doctorId) => context.Doctors.Any(doctor => doctor.Id == doctorId);
+
+    public bool DoctorAssignedToAnotherUser(int doctorId, int userId) =>
+        context.Users.Any(user => user.DoctorId == doctorId && user.Id != userId);
+
     public void Add(User user) => context.Users.Add(user);
 
     public void Remove(User user) => context.Users.Remove(user);

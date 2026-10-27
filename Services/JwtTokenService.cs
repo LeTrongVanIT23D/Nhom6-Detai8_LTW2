@@ -26,13 +26,15 @@ public class JwtTokenService : IJwtTokenService
             ?? throw new InvalidOperationException("JwtSettings:Audience chưa được cấu hình.");
         var expiryMinutes = settings.GetValue<int>("ExpiryMinutes");
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Name, user.Username),
             new Claim(ClaimTypes.GivenName, user.FullName),
             new Claim(ClaimTypes.Role, user.Role)
         };
+        if (user.DoctorId.HasValue)
+            claims.Add(new Claim("doctor_id", user.DoctorId.Value.ToString()));
         var credentials = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
             SecurityAlgorithms.HmacSha256);

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -19,8 +20,10 @@ public class ChatbotService : IChatbotService
     private readonly ILogger<ChatbotService> logger;
 
     // Lưu cấu hình động do Admin cập nhật trong runtime
-    private static string? dynamicApiKey;
-    private static string dynamicModel = "gemini-2.5-flash";
+    private static readonly ConcurrentDictionary<string, string> dynamicApiKeys = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, string> dynamicModels = new(StringComparer.OrdinalIgnoreCase);
+    private static string? dynamicProvider;
+    private static string? dynamicAccountId;
     private static bool dynamicIsEnabled = true;
 
     public ChatbotService(
@@ -39,14 +42,62 @@ public class ChatbotService : IChatbotService
 
     private string GetActiveApiKey()
     {
-        if (!string.IsNullOrWhiteSpace(dynamicApiKey)) return dynamicApiKey.Trim();
-        var configKey = configuration["Gemini:ApiKey"] ?? configuration["GeminiApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
+        var provider = GetActiveProvider();
+        if (dynamicApiKeys.TryGetValue(provider, out var dynamicKey) && !string.IsNullOrWhiteSpace(dynamicKey))
+            return dynamicKey.Trim();
+
+        var configKey = provider switch
+        {
+            "Gemini" => configuration["Gemini:ApiKey"] ?? configuration["GeminiApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY"),
+            "Mistral" => configuration["Mistral:ApiKey"] ?? Environment.GetEnvironmentVariable("MISTRAL_API_KEY"),
+            "Groq" => configuration["Groq:ApiKey"] ?? Environment.GetEnvironmentVariable("GROQ_API_KEY"),
+            "OpenRouter" => configuration["OpenRouter:ApiKey"] ?? Environment.GetEnvironmentVariable("OPENROUTER_API_KEY"),
+            "Cloudflare" => configuration["Cloudflare:ApiKey"] ?? Environment.GetEnvironmentVariable("CLOUDFLARE_API_TOKEN"),
+            _ => null
+        };
         return configKey?.Trim() ?? string.Empty;
+    }
+
+    private string GetActiveProvider()
+    {
+        if (!string.IsNullOrWhiteSpace(dynamicProvider)) return dynamicProvider;
+        var configuredProvider = configuration["Chatbot:Provider"];
+        if (!string.IsNullOrWhiteSpace(configuredProvider)) return NormalizeProvider(configuredProvider);
+        return !string.IsNullOrWhiteSpace(configuration["Gemini:ApiKey"] ?? configuration["GeminiApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY"))
+            ? "Gemini"
+            : "Mistral";
+    }
+
+    private static string NormalizeProvider(string? provider)
+    {
+        return provider?.Trim().ToLowerInvariant() switch
+        {
+            "mistral" => "Mistral",
+            "groq" => "Groq",
+            "openrouter" => "OpenRouter",
+            "cloudflare" => "Cloudflare",
+            _ => "Gemini"
+        };
+    }
+
+    private string GetDefaultModel(string provider)
+    {
+        return provider switch
+        {
+            "Mistral" => "mistral-small-latest",
+            "Groq" => "openai/gpt-oss-20b",
+            "OpenRouter" => "mistralai/mistral-small-3.1-24b-instruct:free",
+            "Cloudflare" => "@cf/meta/llama-3.1-8b-instruct",
+            _ => configuration["Gemini:Model"] ?? "gemini-2.5-flash"
+        };
     }
 
     private string GetActiveModel()
     {
-        var model = !string.IsNullOrWhiteSpace(dynamicModel) ? dynamicModel : (configuration["Gemini:Model"] ?? "gemini-2.5-flash");
+        var provider = GetActiveProvider();
+        var model = dynamicModels.TryGetValue(provider, out var selectedModel)
+            ? selectedModel
+            : GetDefaultModel(provider);
         if (model.Contains('('))
         {
             model = model.Split('(')[0].Trim();
@@ -58,13 +109,16 @@ public class ChatbotService : IChatbotService
         return model.Trim();
     }
 
-    private bool IsGeminiEnabled()
+    private bool IsAiEnabled()
     {
-        return dynamicIsEnabled && (configuration.GetValue<bool?>("Gemini:IsEnabled") ?? true);
+        return dynamicIsEnabled && (configuration.GetValue<bool?>("Chatbot:IsEnabled")
+            ?? configuration.GetValue<bool?>("Gemini:IsEnabled")
+            ?? true);
     }
 
     public Task<ChatbotConfigDto> GetConfigAsync()
     {
+        var provider = GetActiveProvider();
         var key = GetActiveApiKey();
         var masked = string.IsNullOrWhiteSpace(key)
             ? string.Empty
@@ -74,25 +128,32 @@ public class ChatbotService : IChatbotService
         {
             ApiKeyMasked = masked,
             Model = GetActiveModel(),
-            IsEnabled = IsGeminiEnabled(),
+            Provider = provider,
+            AccountId = dynamicAccountId ?? configuration["Cloudflare:AccountId"] ?? string.Empty,
+            IsEnabled = IsAiEnabled(),
             HasKey = !string.IsNullOrWhiteSpace(key),
-            Provider = !string.IsNullOrWhiteSpace(key) && IsGeminiEnabled() ? "Google Gemini AI" : "Medika Clinical Assistant"
         });
     }
 
     public async Task<ChatbotConfigDto> UpdateConfigAsync(UpdateChatbotConfigDto updateDto)
     {
+        if (!string.IsNullOrWhiteSpace(updateDto.Provider))
+            dynamicProvider = NormalizeProvider(updateDto.Provider);
+
+        var provider = GetActiveProvider();
         if (updateDto.ApiKey != null)
         {
-            dynamicApiKey = updateDto.ApiKey.Trim();
+            dynamicApiKeys[provider] = updateDto.ApiKey.Trim();
         }
         if (!string.IsNullOrWhiteSpace(updateDto.Model))
         {
             var cleanModel = updateDto.Model.Trim();
             if (cleanModel.Contains('(')) cleanModel = cleanModel.Split('(')[0].Trim();
             if (cleanModel.StartsWith("models/")) cleanModel = cleanModel["models/".Length..].Trim();
-            dynamicModel = cleanModel;
+            dynamicModels[provider] = cleanModel;
         }
+        if (updateDto.AccountId != null)
+            dynamicAccountId = updateDto.AccountId.Trim();
         if (updateDto.IsEnabled.HasValue)
         {
             dynamicIsEnabled = updateDto.IsEnabled.Value;
@@ -101,11 +162,176 @@ public class ChatbotService : IChatbotService
         return await GetConfigAsync();
     }
 
-    public async Task<List<string>> GetAvailableModelsAsync()
+    public async Task<List<string>> GetAvailableModelsAsync(string? provider = null, string? accountId = null)
     {
+        var selectedProvider = string.IsNullOrWhiteSpace(provider) ? GetActiveProvider() : NormalizeProvider(provider);
         var apiKey = GetActiveApiKey();
         if (string.IsNullOrWhiteSpace(apiKey)) return [];
-        return await QueryAvailableModelsAsync(apiKey);
+        if (selectedProvider == "Gemini") return await QueryAvailableModelsAsync(apiKey);
+
+        var client = httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(10);
+        using var request = new HttpRequestMessage(HttpMethod.Get, GetModelsEndpoint(selectedProvider, accountId));
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+        using var response = await client.SendAsync(request);
+        if (!response.IsSuccessStatusCode)
+        {
+            logger.LogWarning("[{Provider}] Model list request failed: {StatusCode}", selectedProvider, (int)response.StatusCode);
+            return [];
+        }
+
+        var body = await response.Content.ReadAsStringAsync();
+        var node = JsonNode.Parse(body);
+        var models = (node?["data"] ?? node?["result"])?.AsArray()
+            ?.Select(item => item?["id"]?.ToString() ?? item?["name"]?.ToString() ?? string.Empty)
+            .Where(model => !string.IsNullOrWhiteSpace(model))
+            .Where(model => selectedProvider != "OpenRouter" || model.EndsWith(":free", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(model => model, StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+        return models;
+    }
+
+    private static string GetModelsEndpoint(string provider, string? accountId) => provider switch
+    {
+        "Mistral" => "https://api.mistral.ai/v1/models",
+        "Groq" => "https://api.groq.com/openai/v1/models",
+        "OpenRouter" => "https://openrouter.ai/api/v1/models",
+        "Cloudflare" when !string.IsNullOrWhiteSpace(accountId) =>
+            $"https://api.cloudflare.com/client/v4/accounts/{Uri.EscapeDataString(accountId.Trim())}/ai/models/search?task=Text%20Generation&per_page=100",
+        "Cloudflare" => throw new InvalidOperationException("Nhập Cloudflare Account ID để tải danh sách model."),
+        _ => throw new InvalidOperationException($"Nhà cung cấp AI không được hỗ trợ: {provider}")
+    };
+
+    public async Task<TestConnectionResponseDto> TestConnectionAsync(string? provider, string? testApiKey, string? testModel, string? accountId)
+    {
+        var selectedProvider = string.IsNullOrWhiteSpace(provider) ? GetActiveProvider() : NormalizeProvider(provider);
+        dynamicProvider = selectedProvider;
+        if (accountId != null)
+            dynamicAccountId = accountId.Trim();
+        if (selectedProvider == "Gemini")
+            return await TestGeminiConnectionAsync(testApiKey, testModel);
+
+        var apiKey = !string.IsNullOrWhiteSpace(testApiKey) ? testApiKey.Trim() : GetActiveApiKey();
+        var model = !string.IsNullOrWhiteSpace(testModel) ? testModel.Trim() : GetActiveModel();
+        if (string.IsNullOrWhiteSpace(apiKey))
+            return new TestConnectionResponseDto { Success = false, Message = $"Chưa nhập API key {selectedProvider}." };
+        if (selectedProvider == "Cloudflare" && string.IsNullOrWhiteSpace(accountId ?? dynamicAccountId ?? configuration["Cloudflare:AccountId"]))
+            return new TestConnectionResponseDto { Success = false, Message = "Nhập Cloudflare Account ID để kiểm tra kết nối." };
+
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(20);
+            var endpoint = selectedProvider == "Cloudflare"
+                ? $"https://api.cloudflare.com/client/v4/accounts/{Uri.EscapeDataString((accountId ?? dynamicAccountId ?? configuration["Cloudflare:AccountId"]!).Trim())}/ai/v1/chat/completions"
+                : GetChatCompletionsEndpoint(selectedProvider);
+            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            request.Content = new StringContent(JsonSerializer.Serialize(new
+            {
+                model,
+                messages = new[] { new { role = "user", content = "Reply with the single word OK." } },
+                max_tokens = 16,
+                temperature = 0
+            }), Encoding.UTF8, "application/json");
+
+            using var response = await client.SendAsync(request);
+            var responseBody = await response.Content.ReadAsStringAsync();
+            var availableModels = await GetAvailableModelsForTestAsync(selectedProvider, apiKey, accountId);
+
+            if (response.IsSuccessStatusCode)
+            {
+                if (!string.IsNullOrWhiteSpace(testApiKey))
+                    dynamicApiKeys[selectedProvider] = apiKey;
+                if (!string.IsNullOrWhiteSpace(testModel))
+                    dynamicModels[selectedProvider] = model;
+                if (selectedProvider == "Cloudflare" && !string.IsNullOrWhiteSpace(accountId))
+                    dynamicAccountId = accountId.Trim();
+
+                return new TestConnectionResponseDto
+                {
+                    Success = true,
+                    StatusCode = (int)response.StatusCode,
+                    Message = $"Kết nối {selectedProvider} thành công với model {model}.",
+                    AvailableModels = availableModels
+                };
+            }
+
+            var providerMessage = ExtractProviderError(responseBody);
+            var message = (int)response.StatusCode == 429
+                ? $"{selectedProvider} từ chối yêu cầu do giới hạn quota/rate limit. Hạn mức miễn phí phụ thuộc tài khoản và model."
+                : $"{selectedProvider} trả lỗi {(int)response.StatusCode}: {providerMessage}";
+            logger.LogWarning("[{Provider} Test] Status {StatusCode}: {ProviderMessage}", selectedProvider, (int)response.StatusCode, providerMessage);
+            return new TestConnectionResponseDto
+            {
+                Success = false,
+                StatusCode = (int)response.StatusCode,
+                Message = message,
+                ErrorDetails = providerMessage,
+                AvailableModels = availableModels
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[{Provider} Test] Kết nối thất bại", selectedProvider);
+            return new TestConnectionResponseDto
+            {
+                Success = false,
+                Message = $"Không thể kết nối tới {selectedProvider}: {ex.Message}"
+            };
+        }
+    }
+
+    private async Task<List<string>> GetAvailableModelsForTestAsync(string provider, string apiKey, string? accountId)
+    {
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+            using var request = new HttpRequestMessage(HttpMethod.Get, GetModelsEndpoint(provider, accountId));
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            using var response = await client.SendAsync(request);
+            if (!response.IsSuccessStatusCode) return [];
+
+            var node = JsonNode.Parse(await response.Content.ReadAsStringAsync());
+            var models = (node?["data"] ?? node?["result"])?.AsArray()
+                ?.Select(item => item?["id"]?.ToString() ?? item?["name"]?.ToString() ?? string.Empty)
+                .Where(model => !string.IsNullOrWhiteSpace(model))
+                .Where(model => provider != "OpenRouter" || model.EndsWith(":free", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(model => model, StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? [];
+            return models;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "[{Provider}] Không lấy được danh sách model", provider);
+            return [];
+        }
+    }
+
+    private static string GetChatCompletionsEndpoint(string provider) => provider switch
+    {
+        "Mistral" => "https://api.mistral.ai/v1/chat/completions",
+        "Groq" => "https://api.groq.com/openai/v1/chat/completions",
+        "OpenRouter" => "https://openrouter.ai/api/v1/chat/completions",
+        _ => throw new InvalidOperationException($"Nhà cung cấp AI không được hỗ trợ: {provider}")
+    };
+
+    private static string ExtractProviderError(string responseBody)
+    {
+        try
+        {
+            var node = JsonNode.Parse(responseBody);
+            return node?["error"]?["message"]?.ToString()
+                ?? node?["message"]?.ToString()
+                ?? "Không có nội dung lỗi chi tiết.";
+        }
+        catch
+        {
+            return "Không đọc được phản hồi lỗi từ nhà cung cấp.";
+        }
     }
 
     private async Task<List<string>> QueryAvailableModelsAsync(string apiKey)
@@ -159,7 +385,7 @@ public class ChatbotService : IChatbotService
         return models;
     }
 
-    public async Task<TestConnectionResponseDto> TestGeminiConnectionAsync(string? testApiKey = null, string? testModel = null)
+    private async Task<TestConnectionResponseDto> TestGeminiConnectionAsync(string? testApiKey = null, string? testModel = null)
     {
         var key = !string.IsNullOrWhiteSpace(testApiKey) ? testApiKey.Trim() : GetActiveApiKey();
         if (string.IsNullOrWhiteSpace(key))
@@ -226,9 +452,8 @@ public class ChatbotService : IChatbotService
 
             var (res, responseBody) = await TryGenerate(model);
 
-            // Nếu vẫn 404: tự động lấy danh sách model khả dụng rồi thử từng model đó
+            // Nếu model đã chọn không tồn tại, trả danh sách model khả dụng để Admin tự chọn.
             var availableModels = new List<string>();
-            string? workingModel = null;
 
             if (!res.IsSuccessStatusCode && res.StatusCode == HttpStatusCode.NotFound)
             {
@@ -242,64 +467,34 @@ public class ChatbotService : IChatbotService
                     Console.ForegroundColor = ConsoleColor.Cyan;
                     Console.WriteLine($"[Gemini Test] Models khả dụng: {string.Join(", ", availableModels)}");
                     Console.ResetColor();
-
-                    // Tự động thử lần lượt, bỏ qua các model -tts
-                    var candidates = availableModels
-                        .Where(m => !m.EndsWith("-tts", StringComparison.OrdinalIgnoreCase))
-                        .ToList();
-
-                    foreach (var candidate in candidates)
-                    {
-                        Console.ForegroundColor = ConsoleColor.Yellow;
-                        Console.WriteLine($"[Gemini Test] Tự động thử model từ danh sách: {candidate}");
-                        Console.ResetColor();
-
-                        var (retryRes, retryBody) = await TryGenerate(candidate);
-                        if (retryRes.IsSuccessStatusCode)
-                        {
-                            workingModel = candidate;
-                            res = retryRes;
-                            responseBody = retryBody;
-                            Console.ForegroundColor = ConsoleColor.Green;
-                            Console.WriteLine($"[Gemini Test SUCCESS] Model '{candidate}' hoạt động thành công!");
-                            Console.ResetColor();
-                            break;
-                        }
-                        Console.ForegroundColor = ConsoleColor.DarkRed;
-                        Console.WriteLine($"[Gemini Test] Model '{candidate}' → {(int)retryRes.StatusCode} {retryRes.ReasonPhrase}");
-                        Console.ResetColor();
-                    }
                 }
             }
 
             if (res.IsSuccessStatusCode)
             {
-                var confirmedModel = workingModel ?? model;
+                if (!string.IsNullOrWhiteSpace(testModel))
+                    dynamicModels["Gemini"] = model;
+
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"[Gemini Test SUCCESS] StatusCode: {(int)res.StatusCode}");
-                Console.WriteLine($"[Gemini Test SUCCESS] Kết nối thành công với model: {confirmedModel}");
+                Console.WriteLine($"[Gemini Test SUCCESS] Kết nối thành công với model: {model}");
                 Console.ResetColor();
                 Console.WriteLine("==============================================================\n");
 
-                // Lưu key và model hoạt động vào runtime
+                // Giữ hành vi hiện tại: nhận API key vừa nhập cho các lần gọi tiếp theo.
                 if (!string.IsNullOrWhiteSpace(testApiKey))
                 {
-                    dynamicApiKey = key;
-                    dynamicModel = confirmedModel;
+                    dynamicApiKeys["Gemini"] = key;
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"[Gemini] Đã lưu runtime: key=****...{key[^4..]}, model={confirmedModel}");
+                    Console.WriteLine($"[Gemini] Đã lưu runtime API key: ****...{key[^4..]}");
                     Console.ResetColor();
                 }
-
-                var successMsg = workingModel != null && workingModel != model
-                    ? $"Kết nối thành công! Model '{model}' không khả dụng, hệ thống tự động dùng '{confirmedModel}'. Khuyên bạn chọn model này để tiết kiệm thời gian."
-                    : $"Kết nối Google Gemini AI ({confirmedModel}) thành công!";
 
                 return new TestConnectionResponseDto
                 {
                     Success = true,
                     StatusCode = (int)res.StatusCode,
-                    Message = successMsg,
+                    Message = $"Kết nối Google Gemini AI ({model}) thành công!",
                     AvailableModels = availableModels
                 };
             }
@@ -315,10 +510,32 @@ public class ChatbotService : IChatbotService
             logger.LogError("[Gemini Test Error] Status: {StatusCode}, Body: {Body}", statusCode, responseBody);
 
             string errorMsgFromGoogle = string.Empty;
+            string quotaModel = string.Empty;
+            string quotaDescription = string.Empty;
+            string retryDelay = string.Empty;
             try
             {
                 var errNode = JsonNode.Parse(responseBody);
-                errorMsgFromGoogle = errNode?["error"]?["message"]?.ToString() ?? string.Empty;
+                var errorNode = errNode?["error"];
+                errorMsgFromGoogle = errorNode?["message"]?.ToString() ?? string.Empty;
+                if (errorNode?["details"] is JsonArray errorDetails)
+                {
+                    foreach (var detail in errorDetails)
+                    {
+                        var type = detail?["@type"]?.ToString() ?? string.Empty;
+                        if (type.EndsWith("QuotaFailure", StringComparison.Ordinal) &&
+                            detail?["violations"] is JsonArray violations)
+                        {
+                            var violation = violations.FirstOrDefault();
+                            quotaModel = violation?["quotaDimensions"]?["model"]?.ToString() ?? string.Empty;
+                            quotaDescription = violation?["description"]?.ToString() ?? string.Empty;
+                        }
+                        else if (type.EndsWith("RetryInfo", StringComparison.Ordinal))
+                        {
+                            retryDelay = detail?["retryDelay"]?.ToString() ?? string.Empty;
+                        }
+                    }
+                }
             }
             catch { }
 
@@ -330,12 +547,21 @@ public class ChatbotService : IChatbotService
             else if (statusCode == 404)
             {
                 if (availableModels.Count > 0)
-                    userFriendlyMsg = $"Không có model nào hoạt động được (404). Danh sách model tài khoản hỗ trợ: {string.Join(", ", availableModels.Where(m => !m.EndsWith("-tts")).Take(4))}. Hãy thử các model này theo thứ tự.";
+                    userFriendlyMsg = $"Model '{model}' không khả dụng với API key này. Hãy chọn một model trong danh sách được tải từ tài khoản của bạn.";
                 else
                     userFriendlyMsg = $"Không tìm thấy Model '{model}' (404 Not Found). Vui lòng chọn model khác (ví dụ: gemini-2.5-flash hoặc gemini-2.5-pro).";
             }
             else if (statusCode == 429)
-                userFriendlyMsg = "Vượt quá hạn ngạch gọi API (429 Too Many Requests / Quota Exceeded).";
+            {
+                var modelInfo = !string.IsNullOrWhiteSpace(quotaModel) ? $" Model bị từ chối: {quotaModel}." : string.Empty;
+                var quotaInfo = responseBody.Contains("limit: 0", StringComparison.OrdinalIgnoreCase)
+                    ? " Hạn mức hiện tại của model bằng 0; chờ rồi thử lại sẽ không khắc phục nếu Google chưa cấp quota."
+                    : string.Empty;
+                var retryInfo = !string.IsNullOrWhiteSpace(retryDelay)
+                    ? $" Google đề nghị thử lại sau {retryDelay}."
+                    : string.Empty;
+                userFriendlyMsg = $"Google từ chối yêu cầu vì quota Gemini API (429).{modelInfo}{quotaInfo}{retryInfo} Danh sách model hiển thị không bảo đảm tài khoản có quota cho model đó. Hãy chọn model đã kiểm tra kết nối thành công hoặc kiểm tra quota/billing trong Google AI Studio.";
+            }
             else
                 userFriendlyMsg = $"Google API báo lỗi: {statusCode} {res.ReasonPhrase}";
 
@@ -344,7 +570,9 @@ public class ChatbotService : IChatbotService
                 Success = false,
                 StatusCode = statusCode,
                 Message = userFriendlyMsg,
-                ErrorDetails = !string.IsNullOrWhiteSpace(errorMsgFromGoogle) ? errorMsgFromGoogle : responseBody,
+                ErrorDetails = statusCode == 429
+                    ? (!string.IsNullOrWhiteSpace(quotaDescription) ? quotaDescription : errorMsgFromGoogle)
+                    : (!string.IsNullOrWhiteSpace(errorMsgFromGoogle) ? errorMsgFromGoogle : responseBody),
                 AvailableModels = availableModels
             };
         }
@@ -445,20 +673,23 @@ public class ChatbotService : IChatbotService
             }
         }
 
-        // Kiểm tra xem có cấu hình Gemini API hay không
+        // Kiểm tra cấu hình nhà cung cấp AI đang được chọn.
         var apiKey = GetActiveApiKey();
-        var useGemini = !string.IsNullOrWhiteSpace(apiKey) && IsGeminiEnabled();
+        var provider = GetActiveProvider();
+        var useAiProvider = !string.IsNullOrWhiteSpace(apiKey) && IsAiEnabled();
 
-        if (useGemini)
+        if (useAiProvider)
         {
             try
             {
-                var geminiResult = await CallGeminiApiAsync(history, relevantDoctors, apiKey);
+                var aiResult = provider == "Gemini"
+                    ? await CallGeminiApiAsync(history, relevantDoctors, apiKey)
+                    : await CallOpenAiCompatibleApiAsync(provider, history, relevantDoctors, apiKey);
 
                 // NHIỆM VỤ 4: Xử lý Function Calling (Tự động đặt lịch khám)
-                if (geminiResult != null && geminiResult.IsFunctionCall && geminiResult.FunctionName == "create_appointment")
+                if (aiResult != null && aiResult.IsFunctionCall && aiResult.FunctionName == "create_appointment")
                 {
-                    var args = geminiResult.FunctionArgs;
+                    var args = aiResult.FunctionArgs;
                     int reqDoctorId = 0;
                     if (args?["doctorId"] != null)
                     {
@@ -570,7 +801,7 @@ public class ChatbotService : IChatbotService
                     memoryCache.Set(cacheKey, history, new MemoryCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(30) });
 
                     response.Reply = confirmationReply;
-                    response.Source = "Google Gemini AI (Auto-Booking)";
+                    response.Source = $"{provider} AI (Auto-Booking)";
                     response.Intent = "appointment_created";
                     response.ShouldRefreshUi = true;
                     response.CreatedAppointmentId = appointment.Id;
@@ -585,9 +816,9 @@ public class ChatbotService : IChatbotService
                 }
 
                 // Xử lý phản hồi dạng Text thông thường
-                if (geminiResult != null && !string.IsNullOrWhiteSpace(geminiResult.Text))
+                if (aiResult != null && !string.IsNullOrWhiteSpace(aiResult.Text))
                 {
-                    var geminiReply = geminiResult.Text;
+                    var geminiReply = aiResult.Text;
                     history.Add(new GeminiChatMessage
                     {
                         Role = "model",
@@ -598,7 +829,7 @@ public class ChatbotService : IChatbotService
                     memoryCache.Set(cacheKey, history, new MemoryCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(30) });
 
                     response.Reply = geminiReply;
-                    response.Source = "Google Gemini AI";
+                    response.Source = provider == "Gemini" ? "Google Gemini AI" : $"{provider} AI";
                     response.Intent = "ai_consultation";
 
                     // Gợi ý bác sĩ nếu có trong danh sách truy vấn phù hợp hoặc nhận diện chuyên khoa
@@ -640,13 +871,13 @@ public class ChatbotService : IChatbotService
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"[ChatbotService ProcessMessage EXCEPTION]: {ex.Message}");
                 Console.ResetColor();
-                logger.LogError(ex, "Lỗi ngoại lệ khi gọi CallGeminiApiAsync");
+                logger.LogError(ex, "Lỗi ngoại lệ khi gọi nhà cung cấp AI {Provider}", provider);
             }
         }
         else
         {
             Console.ForegroundColor = ConsoleColor.DarkYellow;
-            Console.WriteLine($"[ChatbotService] Gemini chưa sẵn sàng (HasKey: {!string.IsNullOrWhiteSpace(apiKey)}, IsEnabled: {IsGeminiEnabled()}). Tự động dùng fallback nội bộ Medika.");
+            Console.WriteLine($"[ChatbotService] AI provider {provider} chưa sẵn sàng (HasKey: {!string.IsNullOrWhiteSpace(apiKey)}, IsEnabled: {IsAiEnabled()}). Tự động dùng fallback nội bộ Medika.");
             Console.ResetColor();
         }
 
@@ -666,6 +897,104 @@ public class ChatbotService : IChatbotService
         }
 
         return fallbackResponse;
+    }
+
+    private async Task<GeminiCallResult?> CallOpenAiCompatibleApiAsync(
+        string provider,
+        List<GeminiChatMessage> history,
+        List<Doctor> relevantDoctors,
+        string apiKey)
+    {
+        var systemPrompt = $@"Bạn là Medika AI - Trợ lý Y tế & Đặt lịch thông minh của Phòng khám Đa khoa Quốc tế Medika.
+Trả lời bằng tiếng Việt, ân cần, súc tích, không thay thế chẩn đoán của bác sĩ. Với triệu chứng, nêu khả năng sơ bộ, hướng dẫn dấu hiệu cần cấp cứu, gợi ý chuyên khoa và bác sĩ phù hợp.
+Phòng khám tại Tòa nhà Medika Clinic, Số 88 Đường Y Dược, Quận 1, TP. Hồ Chí Minh; mở cửa 07:00-20:00 hằng ngày, cấp cứu 24/7, hotline 1900 6868. Medika tiếp nhận BHYT toàn quốc.
+Ngày giờ hệ thống: {DateTime.Now:yyyy-MM-dd (dddd, HH:mm)}.
+Khi người dùng xác nhận đặt lịch, chỉ gọi create_appointment sau khi đã có bác sĩ và thời gian rõ ràng. Không tự đặt lịch khi người dùng chưa xác nhận.";
+
+        if (relevantDoctors.Count > 0)
+        {
+            var doctors = string.Join("\n", relevantDoctors.Select(d =>
+                $"- ID: {d.Id} | {d.FullName} | {d.Specialty} | {d.Degree} | {d.ExperienceYears} năm kinh nghiệm | Phòng {d.Room}"));
+            systemPrompt += $"\n\nBác sĩ phù hợp hiện có:\n{doctors}\nChỉ dùng ID trong danh sách này khi gọi create_appointment.";
+        }
+
+        var messages = new List<object> { new { role = "system", content = systemPrompt } };
+        messages.AddRange(history.Select(item => new
+        {
+            role = item.Role == "model" ? "assistant" : "user",
+            content = string.Join("\n", item.Parts.Select(part => part.Text))
+        }));
+
+        var tool = new
+        {
+            type = "function",
+            function = new
+            {
+                name = "create_appointment",
+                description = "Tạo lịch khám khi bệnh nhân đã xác nhận đặt lịch và cung cấp bác sĩ, thời gian.",
+                parameters = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        patientId = new { type = "integer", description = "ID bệnh nhân; dùng 0 nếu đang đăng nhập hoặc khách" },
+                        doctorId = new { type = "integer", description = "ID bác sĩ đã chọn" },
+                        date = new { type = "string", description = "Ngày giờ hẹn định dạng ISO hoặc YYYY-MM-DD HH:mm" },
+                        reason = new { type = "string", description = "Lý do khám" }
+                    },
+                    required = new[] { "doctorId", "date", "reason" }
+                }
+            }
+        };
+
+        var accountId = dynamicAccountId ?? configuration["Cloudflare:AccountId"];
+        var endpoint = provider == "Cloudflare"
+            ? $"https://api.cloudflare.com/client/v4/accounts/{Uri.EscapeDataString(accountId ?? string.Empty)}/ai/v1/chat/completions"
+            : GetChatCompletionsEndpoint(provider);
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+        request.Content = new StringContent(JsonSerializer.Serialize(new
+        {
+            model = GetActiveModel(),
+            messages,
+            tools = new[] { tool },
+            tool_choice = "auto",
+            temperature = 0.3,
+            max_tokens = 800
+        }), Encoding.UTF8, "application/json");
+
+        var client = httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(30);
+        using var response = await client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+        {
+            logger.LogError("[{Provider} Chat Error] Status: {StatusCode}, Body: {Body}", provider, (int)response.StatusCode, body);
+            return null;
+        }
+
+        try
+        {
+            var message = JsonNode.Parse(body)?["choices"]?[0]?["message"];
+            var toolCall = message?["tool_calls"]?[0]?["function"];
+            if (toolCall != null)
+            {
+                var argsText = toolCall["arguments"]?.ToString();
+                return new GeminiCallResult
+                {
+                    IsFunctionCall = true,
+                    FunctionName = toolCall["name"]?.ToString(),
+                    FunctionArgs = string.IsNullOrWhiteSpace(argsText) ? null : JsonNode.Parse(argsText)
+                };
+            }
+
+            return new GeminiCallResult { Text = message?["content"]?.ToString() };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[{Provider}] Không đọc được phản hồi chat completions", provider);
+            return null;
+        }
     }
 
     private async Task<GeminiCallResult?> CallGeminiApiAsync(List<GeminiChatMessage> history, List<Doctor> relevantDoctors, string apiKey)

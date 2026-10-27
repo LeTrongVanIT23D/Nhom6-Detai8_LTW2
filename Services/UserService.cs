@@ -25,6 +25,28 @@ public class UserService : IUserService
             ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
 
         user.Role = allowedRoles.First(item => item.Equals(role, StringComparison.OrdinalIgnoreCase));
+        if (user.Role != "Doctor")
+            user.DoctorId = null;
+        userRepository.SaveChanges();
+    }
+
+    public void AssignDoctor(int userId, int? doctorId)
+    {
+        var user = userRepository.GetById(userId)
+            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
+
+        if (user.Role != "Doctor")
+            throw new InvalidOperationException("Chỉ tài khoản có vai trò Bác sĩ mới được gắn hồ sơ bác sĩ.");
+
+        if (doctorId.HasValue)
+        {
+            if (!userRepository.DoctorExists(doctorId.Value))
+                throw new KeyNotFoundException("Không tìm thấy hồ sơ bác sĩ.");
+            if (userRepository.DoctorAssignedToAnotherUser(doctorId.Value, userId))
+                throw new InvalidOperationException("Hồ sơ bác sĩ này đã được gắn với một tài khoản khác.");
+        }
+
+        user.DoctorId = doctorId;
         userRepository.SaveChanges();
     }
 
@@ -66,6 +88,8 @@ public class UserService : IUserService
         if (allowedRoles.Any(item => item.Equals(dto.Role, StringComparison.OrdinalIgnoreCase)))
         {
             user.Role = allowedRoles.First(item => item.Equals(dto.Role, StringComparison.OrdinalIgnoreCase));
+            if (user.Role != "Doctor")
+                user.DoctorId = null;
         }
 
         userRepository.SaveChanges();
@@ -113,6 +137,7 @@ public class UserService : IUserService
         Role = user.Role,
         Email = user.Email,
         IsLocked = user.IsLocked,
+        DoctorId = user.DoctorId,
         CreatedAt = user.CreatedAt
     };
 }
