@@ -275,6 +275,10 @@ using (var scope = app.Services.CreateScope())
                 UploadedAt DATETIME2 NOT NULL DEFAULT GETDATE()
             );
         END;
+        IF EXISTS (SELECT * FROM sys.database_scoped_configurations WHERE name = 'IDENTITY_CACHE' AND value = 1)
+        BEGIN
+            EXEC(N'ALTER DATABASE SCOPED CONFIGURATION SET IDENTITY_CACHE = OFF');
+        END;
         ";
 
         db.Database.ExecuteSqlRaw(migrationSql);
