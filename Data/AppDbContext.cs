@@ -29,6 +29,7 @@ public class AppDbContext : DbContext
     public DbSet<Review> Reviews => Set<Review>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Invoice> Invoices => Set<Invoice>();
+    public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

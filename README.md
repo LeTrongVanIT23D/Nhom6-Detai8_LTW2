@@ -164,3 +164,12 @@ POST   /api/patients
 PUT    /api/patients/{id}
 DELETE /api/patients/{id}
 ```
+
+## API lưu trữ và tải file (Database StoredFiles)
+
+Hệ thống hỗ trợ upload và lưu trữ file nhị phân (ảnh, pdf, tài liệu) trực tiếp vào SQL Server:
+
+```text
+POST /api/files/upload   - Upload file (multipart/form-data với field 'File')
+GET  /api/files/{id}     - Tải file theo mã ID
+```

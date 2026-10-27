@@ -127,6 +127,8 @@ builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IInvoiceService, InvoiceService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IFileRepository, FileRepository>();
+builder.Services.AddScoped<IFileService, FileService>();
 
 var app = builder.Build();
 
@@ -169,13 +171,47 @@ using (var scope = app.Services.CreateScope())
             ALTER TABLE MedicalRecords ADD BloodPressure NVARCHAR(MAX) NULL;
 
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MedicalRecords') AND name = 'HeartRate')
-            ALTER TABLE MedicalRecords ADD HeartRate NVARCHAR(MAX) NULL;
+            ALTER TABLE MedicalRecords ADD HeartRate INT NULL;
+        ELSE IF EXISTS (SELECT * FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('MedicalRecords') AND c.name = 'HeartRate' AND t.name LIKE '%varchar%')
+        BEGIN
+            UPDATE MedicalRecords SET HeartRate = NULL WHERE HeartRate = '' OR ISNUMERIC(HeartRate) = 0;
+            ALTER TABLE MedicalRecords ALTER COLUMN HeartRate INT NULL;
+        END;
 
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MedicalRecords') AND name = 'Temperature')
-            ALTER TABLE MedicalRecords ADD Temperature NVARCHAR(MAX) NULL;
+            ALTER TABLE MedicalRecords ADD Temperature FLOAT NULL;
+        ELSE IF EXISTS (SELECT * FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('MedicalRecords') AND c.name = 'Temperature' AND t.name LIKE '%varchar%')
+        BEGIN
+            UPDATE MedicalRecords SET Temperature = NULL WHERE Temperature = '' OR ISNUMERIC(Temperature) = 0;
+            ALTER TABLE MedicalRecords ALTER COLUMN Temperature FLOAT NULL;
+        END;
 
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MedicalRecords') AND name = 'Weight')
-            ALTER TABLE MedicalRecords ADD Weight NVARCHAR(MAX) NULL;
+            ALTER TABLE MedicalRecords ADD Weight FLOAT NULL;
+        ELSE IF EXISTS (SELECT * FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id WHERE c.object_id = OBJECT_ID('MedicalRecords') AND c.name = 'Weight' AND t.name LIKE '%varchar%')
+        BEGIN
+            UPDATE MedicalRecords SET Weight = NULL WHERE Weight = '' OR ISNUMERIC(Weight) = 0;
+            ALTER TABLE MedicalRecords ALTER COLUMN Weight FLOAT NULL;
+        END;
+
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Reviews')
+        BEGIN
+            CREATE TABLE Reviews (
+                Id INT IDENTITY(1,1) PRIMARY KEY,
+                DoctorId INT NOT NULL,
+                PatientId INT NOT NULL,
+                UserId INT NULL,
+                AppointmentId INT NULL,
+                Rating INT NOT NULL,
+                Comment NVARCHAR(MAX) NOT NULL DEFAULT '',
+                IsHidden BIT NOT NULL DEFAULT 0,
+                CreatedAt DATETIME2 NOT NULL DEFAULT GETDATE(),
+                CONSTRAINT FK_Reviews_Doctors_DoctorId FOREIGN KEY (DoctorId) REFERENCES Doctors(Id),
+                CONSTRAINT FK_Reviews_Patients_PatientId FOREIGN KEY (PatientId) REFERENCES Patients(Id),
+                CONSTRAINT FK_Reviews_Users_UserId FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE NO ACTION,
+                CONSTRAINT FK_Reviews_Appointments_AppointmentId FOREIGN KEY (AppointmentId) REFERENCES Appointments(Id) ON DELETE NO ACTION
+            );
+        END;
 
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MedicalRecords') AND name = 'TreatmentPlan')
             ALTER TABLE MedicalRecords ADD TreatmentPlan NVARCHAR(MAX) NULL;
@@ -227,9 +263,32 @@ using (var scope = app.Services.CreateScope())
                 Notes NVARCHAR(MAX) NOT NULL
             );
         END;
+
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'StoredFiles')
+        BEGIN
+            CREATE TABLE StoredFiles (
+                Id INT IDENTITY(1,1) PRIMARY KEY,
+                FileName NVARCHAR(MAX) NOT NULL,
+                ContentType NVARCHAR(MAX) NOT NULL,
+                Content VARBINARY(MAX) NOT NULL,
+                Length BIGINT NOT NULL,
+                UploadedAt DATETIME2 NOT NULL DEFAULT GETDATE()
+            );
+        END;
         ";
 
         db.Database.ExecuteSqlRaw(migrationSql);
+
+        var docUser = db.Users.FirstOrDefault(u => u.Username == "doctor" && u.DoctorId == null);
+        if (docUser != null)
+        {
+            var firstDoc = db.Doctors.FirstOrDefault(d => d.IsActive);
+            if (firstDoc != null)
+            {
+                docUser.DoctorId = firstDoc.Id;
+                db.SaveChanges();
+            }
+        }
     }
     catch (Exception ex)
     {

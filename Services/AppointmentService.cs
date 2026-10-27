@@ -124,8 +124,8 @@ public class AppointmentService : IAppointmentService
     public Appointment CheckIn(int id, int? receptionistUserId = null)
     {
         var appointment = GetById(id);
-        if (appointment.Status != AppointmentStatus.Confirmed)
-            throw new InvalidOperationException("Chỉ lịch hẹn đã được duyệt mới được check-in.");
+        if (appointment.Status != AppointmentStatus.Confirmed && appointment.Status != AppointmentStatus.Pending)
+            throw new InvalidOperationException("Chỉ lịch hẹn đang chờ hoặc đã được duyệt mới được check-in.");
         appointment.Status = AppointmentStatus.CheckedIn;
         if (receptionistUserId.HasValue)
             appointment.ReceptionistId = receptionistUserId.Value;
