@@ -35,7 +35,8 @@ public class FilesController : ControllerBase
     }
 
     [HttpGet("{id}")]
-    public async Task<IActionResult> Download(string id, [FromQuery] bool download = false)
+    [Produces("application/octet-stream", "image/png", "image/jpeg", "application/pdf")]
+    public async Task<IActionResult> Download(string id)
     {
         if (string.IsNullOrWhiteSpace(id) || !int.TryParse(id.Trim(), out var fileId))
             return BadRequest("Mã file (id) phải là số nguyên hợp lệ.");
@@ -45,9 +46,7 @@ public class FilesController : ControllerBase
         if (fileDto == null)
             return NotFound("Không tìm thấy file yêu cầu.");
 
-        if (download)
-            return File(fileDto.Content, fileDto.ContentType, fileDto.FileName);
-
-        return File(fileDto.Content, fileDto.ContentType);
+        // Luôn trả về kèm fileDto.FileName để trình duyệt và Swagger UI kích hoạt chế độ tải file xuống (Download file)
+        return File(fileDto.Content, fileDto.ContentType, fileDto.FileName);
     }
 }
