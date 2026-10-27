@@ -34,15 +34,20 @@ public class FilesController : ControllerBase
         }
     }
 
-    [HttpGet("{id:int}")]
-    public async Task<IActionResult> Download(int id)
+    [HttpGet("{id}")]
+    public async Task<IActionResult> Download(string id, [FromQuery] bool download = false)
     {
-        var fileDto = await _fileService.GetFileForDownloadAsync(id);
+        if (string.IsNullOrWhiteSpace(id) || !int.TryParse(id.Trim(), out var fileId))
+            return BadRequest("Mã file (id) phải là số nguyên hợp lệ.");
+
+        var fileDto = await _fileService.GetFileForDownloadAsync(fileId);
 
         if (fileDto == null)
             return NotFound("Không tìm thấy file yêu cầu.");
 
-        return File(fileDto.Content, fileDto.ContentType, fileDto.FileName);
+        if (download)
+            return File(fileDto.Content, fileDto.ContentType, fileDto.FileName);
+
+        return File(fileDto.Content, fileDto.ContentType);
     }
 }
-
