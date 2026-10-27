@@ -23,14 +23,25 @@ public class FileService : IFileService
         if (file.Length > MaxFileSizeInBytes)
             throw new ArgumentException("Dung lượng file vượt quá giới hạn cho phép (tối đa 1MB).");
 
+        var fileName = Path.GetFileName(file.FileName);
+
+        // 1. Kiểm tra trùng tên file đã có trong hệ thống
+        if (await _fileRepository.ExistsByNameAsync(fileName))
+            throw new InvalidOperationException($"File '{fileName}' đã tồn tại trong hệ thống. Vui lòng đổi tên file hoặc kiểm tra lại.");
+
         using var memoryStream = new MemoryStream();
         await file.CopyToAsync(memoryStream);
+        var fileContent = memoryStream.ToArray();
+
+        // 2. Kiểm tra trùng nội dung file (dữ liệu nhị phân)
+        if (await _fileRepository.ExistsByContentAsync(file.Length, fileContent))
+            throw new InvalidOperationException("Nội dung file này đã tồn tại trên hệ thống (file trùng lặp).");
 
         var storedFile = new StoredFile
         {
-            FileName = Path.GetFileName(file.FileName),
+            FileName = fileName,
             ContentType = file.ContentType,
-            Content = memoryStream.ToArray(),
+            Content = fileContent,
             Length = file.Length
         };
 
