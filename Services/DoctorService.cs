@@ -71,9 +71,7 @@ public class DoctorService : IDoctorService
 
     public Doctor Add(Doctor doctor)
     {
-        if (doctor.Id > 0 && context.Doctors.Any(item => item.Id == doctor.Id))
-            throw new InvalidOperationException($"Mã bác sĩ {doctor.Id} đã tồn tại.");
-
+        doctor.Id = 0; // Let SQL Server IDENTITY handle the ID generation
         context.Doctors.Add(doctor);
         context.SaveChanges();
         return doctor;

@@ -91,7 +91,26 @@ public class AppointmentsController : ControllerBase
             if (User.IsInRole("User"))
             {
                 var uid = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-                patientId = patientManager.FindByUserId(uid).Id;
+                try
+                {
+                    patientId = patientManager.FindByUserId(uid).Id;
+                }
+                catch (KeyNotFoundException)
+                {
+                    var fullName = User.FindFirstValue(ClaimTypes.GivenName) ?? User.FindFirstValue(ClaimTypes.Name) ?? "Bệnh nhân";
+                    var draft = new Patient
+                    {
+                        UserId = uid,
+                        FullName = fullName,
+                        DateOfBirth = new DateOnly(1995, 1, 1),
+                        Phone = "",
+                        Address = "",
+                        MedicalHistory = "Chưa có tiền sử bệnh",
+                        InsuranceNumber = ""
+                    };
+                    patientManager.Add(draft);
+                    patientId = draft.Id;
+                }
                 apptUserId = uid;
             }
             else

@@ -1243,6 +1243,31 @@ Nhiệm vụ của bạn:
             return response;
         }
 
+        // Khóa an toàn: Từ chối kê đơn / chẩn đoán bệnh trực tuyến
+        var isAskingPrescription = lower.Contains("kê đơn") || lower.Contains("ke don") || 
+                                   lower.Contains("kê toa") || lower.Contains("ke toa") ||
+                                   lower.Contains("cho tôi đơn thuốc") || lower.Contains("cho toi don thuoc") ||
+                                   lower.Contains("uống thuốc gì") || lower.Contains("uong thuoc gi") ||
+                                   lower.Contains("mua thuốc gì") || lower.Contains("mua thuoc gi") ||
+                                   lower.Contains("chẩn đoán bệnh cho tôi") || lower.Contains("tôi bị bệnh gì");
+
+        if (isAskingPrescription)
+        {
+            response.Intent = "prescription_refusal";
+            response.Reply = "⚠️ **KHÓA AN TOÀN Y TẾ:**\n\n" +
+                             "Medika AI chỉ đóng vai trò **Trợ lý Lễ tân & Triage điều phối**. Theo quy định chuyên môn y tế, AI **tuyệt đối không được phép chẩn đoán bệnh hay kê đơn thuốc** trực tuyến.\n\n" +
+                             "👉 Để đảm bảo an toàn tính mạng và hiệu quả điều trị, vui lòng đặt lịch khám trực tiếp với Bác sĩ chuyên khoa để được thăm khám lâm sàng và nhận phác đồ điều trị chuẩn xác.\n\n" +
+                             "*(Nếu bạn chỉ có nhu cầu mua các loại thuốc không kê đơn thông dụng như hạ sốt, nước muối, siro ho... bạn có thể tham khảo mục Nhà thuốc OTC của phòng khám).*";
+            
+            response.QuickActions = new List<ChatbotQuickAction>
+            {
+                new() { Label = "📅 Đặt lịch khám Bác sĩ", ActionType = "book" },
+                new() { Label = "💊 Xem Nhà thuốc OTC", ActionType = "info", Value = "Xem các thuốc OTC không kê đơn" },
+                new() { Label = "💬 Nhắn tin với CSKH", ActionType = "support" }
+            };
+            return response;
+        }
+
         // 1. Tìm chuyên khoa / Triệu chứng bệnh lý (Ưu tiên cao nhất khi người dùng nói về bệnh)
         var matchedSpecialty = DetectSpecialty(lower);
         if (!string.IsNullOrEmpty(matchedSpecialty))

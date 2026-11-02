@@ -41,7 +41,6 @@ public class DoctorsController : ControllerBase
         {
             var doctor = doctorService.Add(new Doctor
             {
-                Id = doctorService.GetAll().Select(item => item.Id).DefaultIfEmpty(0).Max() + 1,
                 UserId = dto.UserId,
                 FullName = dto.FullName.Trim(),
                 Specialty = dto.Specialty.Trim(),

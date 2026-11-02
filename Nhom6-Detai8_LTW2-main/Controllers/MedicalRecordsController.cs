@@ -21,12 +21,19 @@ public class MedicalRecordsController : ControllerBase
         if (User.IsInRole("User"))
         {
             var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-            var patient = HttpContext.RequestServices.GetRequiredService<IPatientManager>().FindByUserId(userId);
-            return Ok(service.GetAll(patient.Id));
+            try
+            {
+                var patient = HttpContext.RequestServices.GetRequiredService<IPatientManager>().FindByUserId(userId);
+                return Ok(service.GetAll(patient.Id));
+            }
+            catch (KeyNotFoundException)
+            {
+                return Ok(new List<MedicalRecord>());
+            }
         }
         if (User.IsInRole("Doctor"))
         {
-            if (!int.TryParse(User.FindFirstValue("doctor_id"), out var doctorId))
+            if (!TryGetDoctorId(out var doctorId))
                 return Conflict(new { message = "Tài khoản bác sĩ chưa được quản trị viên gắn với hồ sơ bác sĩ." });
             return Ok(service.GetForDoctor(doctorId));
         }
@@ -42,11 +49,18 @@ public class MedicalRecordsController : ControllerBase
             if (User.IsInRole("User"))
             {
                 var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-                var patient = HttpContext.RequestServices.GetRequiredService<IPatientManager>().FindByUserId(userId);
-                if (record.PatientId != patient.Id) return Forbid();
+                try
+                {
+                    var patient = HttpContext.RequestServices.GetRequiredService<IPatientManager>().FindByUserId(userId);
+                    if (record.PatientId != patient.Id) return Forbid();
+                }
+                catch (KeyNotFoundException)
+                {
+                    return Forbid();
+                }
             }
             if (User.IsInRole("Doctor") &&
-                (!int.TryParse(User.FindFirstValue("doctor_id"), out var doctorId) || record.DoctorId != doctorId))
+                (!TryGetDoctorId(out var doctorId) || record.DoctorId != doctorId))
                 return Forbid();
             return Ok(record);
         }
@@ -73,7 +87,7 @@ public class MedicalRecordsController : ControllerBase
         {
             var record = service.GetById(id);
             if (User.IsInRole("Doctor") &&
-                (!int.TryParse(User.FindFirstValue("doctor_id"), out var doctorId) || record.DoctorId != doctorId))
+                (!TryGetDoctorId(out var doctorId) || record.DoctorId != doctorId))
                 return Forbid();
             return Ok(service.AddPrescription(new Prescription { MedicalRecordId = id, Medicines = dto.Medicines.Trim(), Instructions = dto.Instructions.Trim() }));
         }
@@ -89,14 +103,41 @@ public class MedicalRecordsController : ControllerBase
             if (User.IsInRole("User"))
             {
                 var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-                var patient = HttpContext.RequestServices.GetRequiredService<IPatientManager>().FindByUserId(userId);
-                if (record.PatientId != patient.Id) return Forbid();
+                try
+                {
+                    var patient = HttpContext.RequestServices.GetRequiredService<IPatientManager>().FindByUserId(userId);
+                    if (record.PatientId != patient.Id) return Forbid();
+                }
+                catch (KeyNotFoundException)
+                {
+                    return Forbid();
+                }
             }
             if (User.IsInRole("Doctor") &&
-                (!int.TryParse(User.FindFirstValue("doctor_id"), out var doctorId) || record.DoctorId != doctorId))
+                (!TryGetDoctorId(out var doctorId) || record.DoctorId != doctorId))
                 return Forbid();
             return Ok(service.GetPrescriptions(id));
         }
         catch (KeyNotFoundException exception) { return NotFound(new { message = exception.Message }); }
+    }
+
+    private bool TryGetDoctorId(out int doctorId)
+    {
+        if (int.TryParse(User.FindFirstValue("doctor_id"), out doctorId) && doctorId > 0)
+            return true;
+
+        if (int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var uid))
+        {
+            var db = HttpContext.RequestServices.GetRequiredService<StudentManagement.Data.AppDbContext>();
+            var doc = db.Doctors.FirstOrDefault(d => d.UserId == uid);
+            if (doc != null)
+            {
+                doctorId = doc.Id;
+                return true;
+            }
+        }
+
+        doctorId = 0;
+        return false;
     }
 }
