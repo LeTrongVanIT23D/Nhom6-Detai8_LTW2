@@ -20,18 +20,20 @@ public class UserRepository : IUserRepository
     {
         var query = _db.Users.AsNoTracking().AsQueryable();
 
-        // 1. SEARCH (Tìm kiếm tương đối)
+        // 1. SEARCH (Tìm kiếm tương đối theo username, email hoặc họ tên)
         if (!string.IsNullOrWhiteSpace(queryParams.SearchTerm))
         {
             var term = queryParams.SearchTerm.Trim().ToLower();
             query = query.Where(u => u.Username.ToLower().Contains(term)
-                                  || u.Email.ToLower().Contains(term));
+                                  || u.Email.ToLower().Contains(term)
+                                  || u.FullName.ToLower().Contains(term));
         }
 
-        // 2. FILTER (Lọc chính xác)
+        // 2. FILTER (Lọc chính xác theo Role, không phân biệt hoa thường)
         if (!string.IsNullOrWhiteSpace(queryParams.Role))
         {
-            query = query.Where(u => u.Role == queryParams.Role);
+            var role = queryParams.Role.Trim().ToLower();
+            query = query.Where(u => u.Role.ToLower() == role);
         }
 
         //if (queryParams.IsActive.HasValue)
