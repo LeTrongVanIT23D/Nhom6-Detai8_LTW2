@@ -7,14 +7,13 @@ namespace StudentManagement.Services;
 public class UserService : IUserService
 {
     private readonly IUserRepository _userRepo;
-    private IUserRepository userRepository => _userRepo;
 
-    public UserService(IUserRepository userRepository)
+    public UserService(IUserRepository userRepo)
     {
-        this._userRepo = userRepository;
+        _userRepo = userRepo;
     }
 
-    public List<UserDto> GetAll() => userRepository.GetAll().Select(ToDto).ToList();
+    public List<UserDto> GetAll() => _userRepo.GetAll().Select(ToDto).ToList();
 
     public async Task<PagedResult<UserResponseDto>> GetAllAsync(UserQueryParameters queryParams)
     {
@@ -38,18 +37,18 @@ public class UserService : IUserService
         if (!allowedRoles.Contains(role, StringComparer.OrdinalIgnoreCase))
             throw new ArgumentException("Role không hợp lệ.");
 
-        var user = userRepository.GetById(userId)
+        var user = _userRepo.GetById(userId)
             ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
 
         user.Role = allowedRoles.First(item => item.Equals(role, StringComparison.OrdinalIgnoreCase));
         if (user.Role != "Doctor")
             user.DoctorId = null;
-        userRepository.SaveChanges();
+        _userRepo.SaveChanges();
     }
 
     public void AssignDoctor(int userId, int? doctorId)
     {
-        var user = userRepository.GetById(userId)
+        var user = _userRepo.GetById(userId)
             ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
 
         if (user.Role != "Doctor")
@@ -57,20 +56,20 @@ public class UserService : IUserService
 
         if (doctorId.HasValue)
         {
-            if (!userRepository.DoctorExists(doctorId.Value))
+            if (!_userRepo.DoctorExists(doctorId.Value))
                 throw new KeyNotFoundException("Không tìm thấy hồ sơ bác sĩ.");
-            if (userRepository.DoctorAssignedToAnotherUser(doctorId.Value, userId))
+            if (_userRepo.DoctorAssignedToAnotherUser(doctorId.Value, userId))
                 throw new InvalidOperationException("Hồ sơ bác sĩ này đã được gắn với một tài khoản khác.");
         }
 
         user.DoctorId = doctorId;
-        userRepository.SaveChanges();
+        _userRepo.SaveChanges();
     }
 
     public UserDto CreateUser(CreateUserDto dto)
     {
         var username = dto.Username.Trim();
-        if (userRepository.UsernameExists(username))
+        if (_userRepo.UsernameExists(username))
             throw new InvalidOperationException("Tên đăng nhập đã tồn tại.");
 
         var allowedRoles = new[] { "User", "Doctor", "Receptionist", "Support", "Admin" };
@@ -88,14 +87,14 @@ public class UserService : IUserService
             CreatedAt = DateTime.Now
         };
 
-        userRepository.Add(user);
-        userRepository.SaveChanges();
+        _userRepo.Add(user);
+        _userRepo.SaveChanges();
         return ToDto(user);
     }
 
     public UserDto UpdateUser(int id, UpdateUserDto dto)
     {
-        var user = userRepository.GetById(id)
+        var user = _userRepo.GetById(id)
             ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
 
         user.FullName = dto.FullName.Trim();
@@ -109,41 +108,41 @@ public class UserService : IUserService
                 user.DoctorId = null;
         }
 
-        userRepository.SaveChanges();
+        _userRepo.SaveChanges();
         return ToDto(user);
     }
 
     public void DeleteUser(int id)
     {
-        var user = userRepository.GetById(id)
+        var user = _userRepo.GetById(id)
             ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
 
         if (user.Role == "Admin" && user.Username == "admin")
             throw new InvalidOperationException("Không thể xóa tài khoản Quản trị viên gốc.");
 
-        userRepository.Remove(user);
-        userRepository.SaveChanges();
+        _userRepo.Remove(user);
+        _userRepo.SaveChanges();
     }
 
     public void SetLocked(int id, bool isLocked)
     {
-        var user = userRepository.GetById(id)
+        var user = _userRepo.GetById(id)
             ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
 
         if (user.Role == "Admin" && user.Username == "admin")
             throw new InvalidOperationException("Không thể khóa tài khoản Quản trị viên gốc.");
 
         user.IsLocked = isLocked;
-        userRepository.SaveChanges();
+        _userRepo.SaveChanges();
     }
 
     public void ResetPassword(int id, string newPassword)
     {
-        var user = userRepository.GetById(id)
+        var user = _userRepo.GetById(id)
             ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
 
         user.PasswordHash = PasswordHashing.Hash(string.IsNullOrWhiteSpace(newPassword) ? "123456" : newPassword);
-        userRepository.SaveChanges();
+        _userRepo.SaveChanges();
     }
 
     private static UserDto ToDto(User user) => new()

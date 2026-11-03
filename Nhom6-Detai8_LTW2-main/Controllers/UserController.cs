@@ -7,21 +7,21 @@ namespace StudentManagement.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Route("api/users")]
 [Authorize(Roles = "Admin")]
-public class UsersController : ControllerBase
+public class UserController : ControllerBase
 {
-    private readonly IUserService userService;
-    private IUserService _userService => userService;
-    private readonly IAuthService authService;
-    private readonly IAuditLogService auditLogService;
-    private readonly IJwtTokenService jwtTokenService;
+    private readonly IUserService _userService;
+    private readonly IAuthService _authService;
+    private readonly IAuditLogService _auditLogService;
+    private readonly IJwtTokenService _jwtTokenService;
 
-    public UsersController(IUserService userService, IAuthService authService, IAuditLogService auditLogService, IJwtTokenService jwtTokenService)
+    public UserController(IUserService userService, IAuthService authService, IAuditLogService auditLogService, IJwtTokenService jwtTokenService)
     {
-        this.userService = userService;
-        this.authService = authService;
-        this.auditLogService = auditLogService;
-        this.jwtTokenService = jwtTokenService;
+        _userService = userService;
+        _authService = authService;
+        _auditLogService = auditLogService;
+        _jwtTokenService = jwtTokenService;
     }
 
     [HttpGet]
@@ -36,8 +36,8 @@ public class UsersController : ControllerBase
     {
         try
         {
-            var user = userService.CreateUser(dto);
-            await auditLogService.LogAsync("CREATE_USER", User.Identity?.Name ?? "Admin", "Admin", $"Tạo tài khoản @{user.Username} với vai trò {user.Role}");
+            var user = _userService.CreateUser(dto);
+            await _auditLogService.LogAsync("CREATE_USER", User.Identity?.Name ?? "Admin", "Admin", $"Tạo tài khoản @{user.Username} với vai trò {user.Role}");
             return Ok(user);
         }
         catch (Exception ex)
@@ -52,8 +52,8 @@ public class UsersController : ControllerBase
     {
         try
         {
-            var user = userService.UpdateUser(id, dto);
-            await auditLogService.LogAsync("UPDATE_USER", User.Identity?.Name ?? "Admin", "Admin", $"Cập nhật tài khoản ID #{id} (@{user.Username})");
+            var user = _userService.UpdateUser(id, dto);
+            await _auditLogService.LogAsync("UPDATE_USER", User.Identity?.Name ?? "Admin", "Admin", $"Cập nhật tài khoản ID #{id} (@{user.Username})");
             return Ok(user);
         }
         catch (KeyNotFoundException ex)
@@ -67,13 +67,12 @@ public class UsersController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
-    
     public async Task<IActionResult> DeleteUser(int id)
     {
         try
         {
-            userService.DeleteUser(id);
-            await auditLogService.LogAsync("DELETE_USER", User.Identity?.Name ?? "Admin", "Admin", $"Xóa tài khoản ID #{id}");
+            _userService.DeleteUser(id);
+            await _auditLogService.LogAsync("DELETE_USER", User.Identity?.Name ?? "Admin", "Admin", $"Xóa tài khoản ID #{id}");
             return Ok(new { message = "Xóa tài khoản thành công." });
         }
         catch (KeyNotFoundException ex)
@@ -97,8 +96,8 @@ public class UsersController : ControllerBase
     {
         try
         {
-            userService.SetLocked(id, req.IsLocked);
-            await auditLogService.LogAsync(req.IsLocked ? "LOCK_USER" : "UNLOCK_USER", User.Identity?.Name ?? "Admin", "Admin", $"{(req.IsLocked ? "Khóa" : "Mở khóa")} tài khoản ID #{id}");
+            _userService.SetLocked(id, req.IsLocked);
+            await _auditLogService.LogAsync(req.IsLocked ? "LOCK_USER" : "UNLOCK_USER", User.Identity?.Name ?? "Admin", "Admin", $"{(req.IsLocked ? "Khóa" : "Mở khóa")} tài khoản ID #{id}");
             return Ok(new { message = req.IsLocked ? "Đã khóa tài khoản thành công." : "Đã mở khóa tài khoản thành công." });
         }
         catch (Exception ex)
@@ -118,8 +117,8 @@ public class UsersController : ControllerBase
     {
         try
         {
-            userService.ResetPassword(id, req.NewPassword);
-            await auditLogService.LogAsync("RESET_PASSWORD", User.Identity?.Name ?? "Admin", "Admin", $"Reset mật khẩu cho tài khoản ID #{id}");
+            _userService.ResetPassword(id, req.NewPassword);
+            await _auditLogService.LogAsync("RESET_PASSWORD", User.Identity?.Name ?? "Admin", "Admin", $"Reset mật khẩu cho tài khoản ID #{id}");
             return Ok(new { message = "Đã đặt lại mật khẩu thành công (Mặc định: 123456)." });
         }
         catch (Exception ex)
@@ -134,8 +133,8 @@ public class UsersController : ControllerBase
     {
         try
         {
-            userService.UpdateRole(id, role);
-            await auditLogService.LogAsync("CHANGE_ROLE", User.Identity?.Name ?? "Admin", "Admin", $"Đổi vai trò tài khoản ID #{id} sang {role}");
+            _userService.UpdateRole(id, role);
+            await _auditLogService.LogAsync("CHANGE_ROLE", User.Identity?.Name ?? "Admin", "Admin", $"Đổi vai trò tài khoản ID #{id} sang {role}");
             return Ok(new { message = "Cập nhật phân quyền thành công." });
         }
         catch (ArgumentException exception) { return BadRequest(new { message = exception.Message }); }
@@ -147,7 +146,7 @@ public class UsersController : ControllerBase
     {
         try
         {
-            userService.AssignDoctor(id, dto.DoctorId);
+            _userService.AssignDoctor(id, dto.DoctorId);
             return NoContent();
         }
         catch (KeyNotFoundException exception) { return NotFound(new { message = exception.Message }); }
@@ -160,11 +159,11 @@ public class UsersController : ControllerBase
     {
         try
         {
-            var user = authService.Login(login);
+            var user = _authService.Login(login);
             if (user is null)
                 return Unauthorized(new { message = "Tên đăng nhập hoặc mật khẩu không đúng." });
 
-            user.AccessToken = jwtTokenService.CreateToken(user);
+            user.AccessToken = _jwtTokenService.CreateToken(user);
             return Ok(user);
         }
         catch (InvalidOperationException ex)

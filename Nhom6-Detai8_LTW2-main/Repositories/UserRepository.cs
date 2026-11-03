@@ -8,14 +8,13 @@ namespace StudentManagement.Repositories;
 public class UserRepository : IUserRepository
 {
     private readonly AppDbContext _db;
-    private AppDbContext context => _db;
 
-    public UserRepository(AppDbContext context)
+    public UserRepository(AppDbContext db)
     {
-        this._db = context;
+        _db = db;
     }
 
-    public List<User> GetAll() => context.Users.AsNoTracking().OrderBy(user => user.Id).ToList();
+    public List<User> GetAll() => _db.Users.AsNoTracking().OrderBy(user => user.Id).ToList();
 
     public async Task<PagedResult<User>> GetAllAsync(UserQueryParameters queryParams)
     {
@@ -68,22 +67,22 @@ public class UserRepository : IUserRepository
         return new PagedResult<User>(items, totalCount, queryParams.PageNumber, queryParams.PageSize);
     }
 
-    public User? GetById(int id) => context.Users.FirstOrDefault(user => user.Id == id);
+    public User? GetById(int id) => _db.Users.FirstOrDefault(user => user.Id == id);
 
     public bool UsernameExists(string username)
     {
         var normalizedUsername = username.Trim().ToLower();
-        return context.Users.Any(user => user.Username.ToLower() == normalizedUsername);
+        return _db.Users.Any(user => user.Username.ToLower() == normalizedUsername);
     }
 
-    public bool DoctorExists(int doctorId) => context.Doctors.Any(doctor => doctor.Id == doctorId);
+    public bool DoctorExists(int doctorId) => _db.Doctors.Any(doctor => doctor.Id == doctorId);
 
     public bool DoctorAssignedToAnotherUser(int doctorId, int userId) =>
-        context.Users.Any(user => user.DoctorId == doctorId && user.Id != userId);
+        _db.Users.Any(user => user.DoctorId == doctorId && user.Id != userId);
 
-    public void Add(User user) => context.Users.Add(user);
+    public void Add(User user) => _db.Users.Add(user);
 
-    public void Remove(User user) => context.Users.Remove(user);
+    public void Remove(User user) => _db.Users.Remove(user);
 
-    public void SaveChanges() => context.SaveChanges();
+    public void SaveChanges() => _db.SaveChanges();
 }
