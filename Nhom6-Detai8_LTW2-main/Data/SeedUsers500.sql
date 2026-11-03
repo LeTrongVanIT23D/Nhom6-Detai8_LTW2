@@ -10,7 +10,7 @@ WHILE @i <= 500 -- (Nếu muốn nhập tới 500 user)
 BEGIN
     SET @Username = CONCAT('user', @i);
     SET @Email = CONCAT('user', @i, '@example.com');
-    SET @FullName = CONCAT(N'Người dùng ', @i);
+    SET @FullName = CONCAT('User ', @i);
     
     IF @i % 15 = 0
         SET @Role = 'Admin';
