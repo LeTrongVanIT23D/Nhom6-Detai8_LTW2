@@ -398,7 +398,47 @@ using (var scope = app.Services.CreateScope())
             db.SaveChanges();
         }
 
+        // Tu dong tao 500 users mau trong moi truong Development neu chua du 500 users
+        if (db.Users.Count() < 500)
+        {
+            var seedSql = @"
+                DECLARE @i INT = 1;
+                DECLARE @Username NVARCHAR(50);
+                DECLARE @Email NVARCHAR(100);
+                DECLARE @Role NVARCHAR(20);
 
+                WHILE @i <= 500
+                BEGIN
+                    SET @Username = CONCAT('user', @i);
+                    SET @Email = CONCAT('user', @i, '@example.com');
+                    
+                    IF @i % 15 = 0
+                        SET @Role = 'Admin';
+                    ELSE IF @i % 5 = 0
+                        SET @Role = 'Manager';
+                    ELSE
+                        SET @Role = 'User';
+
+                    IF NOT EXISTS (SELECT 1 FROM [Users] WHERE Username = @Username OR Email = @Email)
+                    BEGIN
+                        INSERT INTO [Users] ([Username], [Email], [PasswordHash], [Role], [FullName], [CreatedAt], [IsLocked], [RewardPoints])
+                        VALUES (
+                            @Username, 
+                            @Email, 
+                            '$2a$11$Eo6xzba8Xc9dswG5Rae8x.hof7US1ax3kyMLvC1eLbiNSximlGOMC',
+                            @Role, 
+                            CONCAT('User ', @i), 
+                            DATEADD(DAY, -(@i % 365), GETUTCDATE()),
+                            0,
+                            0
+                        );
+                    END
+
+                    SET @i = @i + 1;
+                END
+            ";
+            db.Database.ExecuteSqlRaw(seedSql);
+        }
     }
     catch (Exception ex)
     {

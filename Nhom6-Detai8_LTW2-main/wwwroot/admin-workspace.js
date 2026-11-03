@@ -165,20 +165,51 @@ function renderAppointmentsChart(summary) {
   });
 }
 
-/* --- QUẢN LÝ TÀI KHOẢN NGƯỜI DÙNG (USERS) --- */
+/* --- QUẢN LÝ TÀI KHOẢN NGƯỜI DÙNG (USERS) - PHÂN TRANG, TÌM KIẾM, LỌC, SẮP XẾP --- */
+let userQueryParams = {
+  searchTerm: '',
+  role: '',
+  sortBy: 'username',
+  isDescending: false,
+  pageNumber: 1,
+  pageSize: 10
+};
+
 async function loadUsers() {
   const tbody = document.querySelector('#users-table-body');
   if (!tbody) return;
 
   try {
-    const [usersResponse, doctors] = await Promise.all([
-      request('/api/users?pageSize=100'),
+    const queryStr = `/api/user?pageNumber=${userQueryParams.pageNumber}&pageSize=${userQueryParams.pageSize}&searchTerm=${encodeURIComponent(userQueryParams.searchTerm)}&role=${encodeURIComponent(userQueryParams.role)}&sortBy=${userQueryParams.sortBy}&isDescending=${userQueryParams.isDescending}`;
+    
+    const [pagedResult, doctors] = await Promise.all([
+      request(queryStr),
       request('/api/doctors')
     ]);
-    const users = Array.isArray(usersResponse) ? usersResponse : (usersResponse?.items || []);
     allDoctorsCache = doctors || [];
+
+    const users = pagedResult?.items || (Array.isArray(pagedResult) ? pagedResult : []);
+    const totalCount = pagedResult?.totalCount ?? users.length;
+    const totalPages = pagedResult?.totalPages ?? (Math.ceil(totalCount / userQueryParams.pageSize) || 1);
+    const hasPrevious = pagedResult?.hasPrevious ?? (userQueryParams.pageNumber > 1);
+    const hasNext = pagedResult?.hasNext ?? (userQueryParams.pageNumber < totalPages);
+
+    // Cập nhật thanh điều khiển phân trang
+    const pageInfo = document.querySelector('#users-page-info');
+    if (pageInfo) {
+      pageInfo.textContent = `Trang ${userQueryParams.pageNumber} / ${totalPages} (Tổng cộng: ${totalCount} tài khoản - 1 trang = ${userQueryParams.pageSize} user)`;
+    }
+    const pageBadge = document.querySelector('#user-current-page-badge');
+    if (pageBadge) pageBadge.textContent = userQueryParams.pageNumber;
+
+    const prevBtn = document.querySelector('#user-prev-btn');
+    if (prevBtn) prevBtn.disabled = !hasPrevious;
+
+    const nextBtn = document.querySelector('#user-next-btn');
+    if (nextBtn) nextBtn.disabled = !hasNext;
+
     if (!users || !users.length) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Chưa có tài khoản nào.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Không tìm thấy tài khoản nào phù hợp.</td></tr>';
       return;
     }
 
@@ -1032,3 +1063,47 @@ function escapeHtml(str) {
 }
 
 load().catch(() => { location.href = '/login.html'; });
+
+window.searchUsers = () => {
+  userQueryParams.searchTerm = (document.querySelector('#user-search-input')?.value || '').trim();
+  userQueryParams.pageNumber = 1;
+  loadUsers();
+};
+
+window.filterUsersByRole = role => {
+  userQueryParams.role = (role || '').trim();
+  userQueryParams.pageNumber = 1;
+  loadUsers();
+};
+
+window.changeUserSort = sortBy => {
+  userQueryParams.sortBy = sortBy;
+  userQueryParams.pageNumber = 1;
+  loadUsers();
+};
+
+window.toggleUserSortDirection = () => {
+  userQueryParams.isDescending = !userQueryParams.isDescending;
+  const btn = document.querySelector('#user-sort-dir-btn');
+  if (btn) btn.textContent = userQueryParams.isDescending ? 'Giảm dần ⬇' : 'Tăng dần ⬆';
+  userQueryParams.pageNumber = 1;
+  loadUsers();
+};
+
+window.changeUserPageSize = size => {
+  userQueryParams.pageSize = Number(size) || 10;
+  userQueryParams.pageNumber = 1;
+  loadUsers();
+};
+
+window.goToPrevUserPage = () => {
+  if (userQueryParams.pageNumber > 1) {
+    userQueryParams.pageNumber--;
+    loadUsers();
+  }
+};
+
+window.goToNextUserPage = () => {
+  userQueryParams.pageNumber++;
+  loadUsers();
+};

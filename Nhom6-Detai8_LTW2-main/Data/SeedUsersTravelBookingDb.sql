@@ -58,3 +58,4 @@ GO
 
 SELECT COUNT(*) AS [TotalUsersInTravelBookingDb] FROM [Users];
 GO
+

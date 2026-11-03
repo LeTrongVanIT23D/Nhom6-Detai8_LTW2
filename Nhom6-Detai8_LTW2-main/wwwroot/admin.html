@@ -572,6 +572,42 @@
               ＋ Thêm Người dùng Mới
             </button>
           </div>
+          <!-- Thanh cong cu Tim kiem, Loc, Sap xep va Phan trang -->
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px;background:#f8fafc;padding:12px;border-radius:8px;border:1px solid #e2e8f0;">
+            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;flex:1;">
+              <input type="text" id="user-search-input" placeholder="🔍 Tìm theo username, email, họ tên..." style="min-width:240px;padding:6px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.875rem;" onkeyup="if(event.key==='Enter') searchUsers()">
+              <button class="action-btn-sm" style="background:#2563eb;color:#fff;padding:6px 12px;" onclick="searchUsers()">Tìm kiếm</button>
+              
+              <select id="user-role-filter" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.875rem;" onchange="filterUsersByRole(this.value)">
+                <option value="">-- Tất cả vai trò (Role) --</option>
+                <option value="Admin">Admin</option>
+                <option value="Doctor">Doctor</option>
+                <option value="Receptionist">Receptionist</option>
+                <option value="Support">Support</option>
+                <option value="User">User</option>
+                <option value="Manager">Manager</option>
+              </select>
+
+              <select id="user-sort-by" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.875rem;" onchange="changeUserSort(this.value)">
+                <option value="username">Sắp xếp: Tên A-Z</option>
+                <option value="email">Sắp xếp: Email</option>
+                <option value="createdat">Sắp xếp: Ngày tạo</option>
+              </select>
+
+              <button id="user-sort-dir-btn" class="action-btn-sm" style="background:#64748b;color:#fff;padding:6px 10px;" onclick="toggleUserSortDirection()">Tăng dần ⬆</button>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size:0.85rem;color:#64748b;">Số lượng / trang:</span>
+              <select id="user-page-size" style="padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;" onchange="changeUserPageSize(this.value)">
+                <option value="10" selected>10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+          </div>
+
           <div id="users-table-container" class="table-wrap">
             <table>
               <thead>
@@ -588,6 +624,18 @@
                 <tr><td colspan="6" style="text-align:center;">Đang tải danh sách tài khoản...</td></tr>
               </tbody>
             </table>
+          </div>
+
+          <!-- Thanh dieu khien chuyen trang (Pagination Controls) -->
+          <div id="users-pagination-controls" style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+            <div id="users-page-info" style="font-size:0.875rem;font-weight:600;color:#334155;">
+              Đang tải thông tin trang...
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button id="user-prev-btn" class="button" style="background:#0284c7;font-size:0.85rem;padding:6px 14px;" onclick="goToPrevUserPage()" disabled>◀ Trang trước</button>
+              <span id="user-current-page-badge" style="font-size:0.875rem;font-weight:700;padding:4px 10px;background:#e0f2fe;color:#0369a1;border-radius:6px;">1</span>
+              <button id="user-next-btn" class="button" style="background:#0284c7;font-size:0.85rem;padding:6px 14px;" onclick="goToNextUserPage()">Trang sau ▶</button>
+            </div>
           </div>
           <p id="message" class="message" style="margin-top:10px;"></p>
         </article>
