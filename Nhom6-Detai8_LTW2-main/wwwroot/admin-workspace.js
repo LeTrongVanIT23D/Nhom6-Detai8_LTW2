@@ -171,10 +171,11 @@ async function loadUsers() {
   if (!tbody) return;
 
   try {
-    const [users, doctors] = await Promise.all([
-      request('/api/users'),
+    const [usersResponse, doctors] = await Promise.all([
+      request('/api/users?pageSize=100'),
       request('/api/doctors')
     ]);
+    const users = Array.isArray(usersResponse) ? usersResponse : (usersResponse?.items || []);
     allDoctorsCache = doctors || [];
     if (!users || !users.length) {
       tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Chưa có tài khoản nào.</td></tr>';

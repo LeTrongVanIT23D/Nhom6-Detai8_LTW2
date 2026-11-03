@@ -5,6 +5,7 @@ namespace StudentManagement.Services;
 public interface IUserService
 {
     List<UserDto> GetAll();
+    Task<PagedResult<UserResponseDto>> GetAllAsync(UserQueryParameters queryParams);
     void UpdateRole(int userId, string role);
     void AssignDoctor(int userId, int? doctorId);
     UserDto CreateUser(CreateUserDto dto);

@@ -11,6 +11,7 @@ namespace StudentManagement.Controllers;
 public class UsersController : ControllerBase
 {
     private readonly IUserService userService;
+    private IUserService _userService => userService;
     private readonly IAuthService authService;
     private readonly IAuditLogService auditLogService;
     private readonly IJwtTokenService jwtTokenService;
@@ -24,9 +25,10 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet]
-    public ActionResult<List<UserDto>> GetAll()
+    public async Task<ActionResult<PagedResult<UserResponseDto>>> GetAll([FromQuery] UserQueryParameters queryParams)
     {
-        return Ok(userService.GetAll());
+        var result = await _userService.GetAllAsync(queryParams);
+        return Ok(result);
     }
 
     [HttpPost]

@@ -6,14 +6,31 @@ namespace StudentManagement.Services;
 
 public class UserService : IUserService
 {
-    private readonly IUserRepository userRepository;
+    private readonly IUserRepository _userRepo;
+    private IUserRepository userRepository => _userRepo;
 
     public UserService(IUserRepository userRepository)
     {
-        this.userRepository = userRepository;
+        this._userRepo = userRepository;
     }
 
     public List<UserDto> GetAll() => userRepository.GetAll().Select(ToDto).ToList();
+
+    public async Task<PagedResult<UserResponseDto>> GetAllAsync(UserQueryParameters queryParams)
+    {
+        var pagedUsers = await _userRepo.GetAllAsync(queryParams);
+
+        // Map danh sách Entity sang DTO
+        var mappedItems = pagedUsers.Items.Select(MapToResponseDto).ToList();
+
+        // Trả về PagedResult chứa DTO
+        return new PagedResult<UserResponseDto>(
+            mappedItems,
+            pagedUsers.TotalCount,
+            pagedUsers.PageNumber,
+            pagedUsers.PageSize
+        );
+    }
 
     public void UpdateRole(int userId, string role)
     {
@@ -138,6 +155,20 @@ public class UserService : IUserService
         Email = user.Email,
         IsLocked = user.IsLocked,
         DoctorId = user.DoctorId,
+        RewardPoints = user.RewardPoints,
+        CreatedAt = user.CreatedAt
+    };
+
+    private static UserResponseDto MapToResponseDto(User user) => new()
+    {
+        Id = user.Id,
+        FullName = user.FullName,
+        Username = user.Username,
+        Role = user.Role,
+        Email = user.Email,
+        IsLocked = user.IsLocked,
+        DoctorId = user.DoctorId,
+        RewardPoints = user.RewardPoints,
         CreatedAt = user.CreatedAt
     };
 }

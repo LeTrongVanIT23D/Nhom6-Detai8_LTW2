@@ -29,7 +29,8 @@ document.querySelector('#dashboard')?.addEventListener('click', async () => {
 document.querySelector('#users')?.addEventListener('click', async () => {
   try {
     const users = await request('/api/users');
-    message.textContent = `Hệ thống hiện có ${users.length} tài khoản.`;
+    const total = Array.isArray(users) ? users.length : (users?.totalCount ?? users?.items?.length ?? 0);
+    message.textContent = `Hệ thống hiện có ${total} tài khoản.`;
   } catch (error) { message.textContent = error.message; }
 });
 

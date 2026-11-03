@@ -37,3 +37,8 @@ public class AssignDoctorDto
 {
     public int? DoctorId { get; set; }
 }
+
+public class UserResponseDto : UserDto
+{
+}
+
