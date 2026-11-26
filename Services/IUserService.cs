@@ -1,14 +1,16 @@
+using StudentManagement.DTOs.Common;
 using StudentManagement.DTOs;
 
 namespace StudentManagement.Services;
 
 public interface IUserService
 {
-    List<UserDto> GetAll();
-    UserDto? Login(LoginDto login);
-    UserDto Register(RegisterDto register);
-    UserDto ChangePassword(int userId, string currentPassword, string newPassword);
-    void UpdateProfile(int userId, string fullName, string email);
-    bool UserExists(string usernameOrEmail);
+    Task<PagedResult<UserDto>> GetAllAsync(UserQueryParameters queryParams);
     void UpdateRole(int userId, string role);
+    void AssignDoctor(int userId, int? doctorId);
+    UserDto CreateUser(CreateUserDto dto);
+    UserDto UpdateUser(int id, UpdateUserDto dto);
+    void DeleteUser(int id);
+    void SetLocked(int id, bool isLocked);
+    void ResetPassword(int id, string newPassword);
 }

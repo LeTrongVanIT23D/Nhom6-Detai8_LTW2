@@ -1,93 +1,29 @@
 using StudentManagement.DTOs;
+using StudentManagement.DTOs.Common;
 using StudentManagement.Models;
-using Microsoft.AspNetCore.Identity;
-using System.Text.Json;
+using StudentManagement.Repositories;
 
 namespace StudentManagement.Services;
 
 public class UserService : IUserService
 {
-    private readonly PasswordHasher<User> passwordHasher = new();
-    private readonly string usersFilePath = Path.Combine(AppContext.BaseDirectory, "users.json");
-    private readonly List<User> users =
-    [];
+    private readonly IUserRepository userRepository;
 
-    public UserService(IConfiguration configuration)
+    public UserService(IUserRepository userRepository)
     {
-        SeedSpecialAccount(configuration, "AdminPassword", "MEDIKA_ADMIN_PASSWORD", "admin", "Quản trị viên", "Admin", "admin@medika.local");
-        SeedSpecialAccount(configuration, "DoctorPassword", "MEDIKA_DOCTOR_PASSWORD", "doctor", "Bác sĩ trực", "Doctor", "doctor@medika.local");
-        SeedSpecialAccount(configuration, "ReceptionistPassword", "MEDIKA_RECEPTIONIST_PASSWORD", "letu", "Lê Thu", "Receptionist", "receptionist@medika.local");
-        SeedSpecialAccount(configuration, "SupportPassword", "MEDIKA_SUPPORT_PASSWORD", "support", "Nhân viên chăm sóc khách hàng", "Support", "support@medika.local");
-        LoadUsers();
+        this.userRepository = userRepository;
     }
 
-    public List<UserDto> GetAll()
+    public async Task<PagedResult<UserDto>> GetAllAsync(UserQueryParameters queryParams)
     {
-        return users.Select(ToDto).ToList();
-    }
+        var pagedUsers = await userRepository.GetAllAsync(queryParams);
+        var items = pagedUsers.Items.Select(ToDto).ToList();
 
-    public UserDto? Login(LoginDto login)
-    {
-        var user = users.FirstOrDefault(item =>
-            item.Username.Equals(login.Username.Trim(), StringComparison.OrdinalIgnoreCase));
-
-        if (user is null)
-            return null;
-
-        var passwordMatches = passwordHasher.VerifyHashedPassword(user, user.PasswordHash, login.Password) == PasswordVerificationResult.Success;
-
-        return passwordMatches ? ToDto(user) : null;
-    }
-
-    public UserDto Register(RegisterDto register)
-    {
-        var username = register.Username.Trim();
-        if (users.Any(item => item.Username.Equals(username, StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException("Tên đăng nhập đã tồn tại.");
-
-        var user = new User
-        {
-            Id = users.Select(item => item.Id).DefaultIfEmpty(0).Max() + 1,
-            FullName = register.FullName.Trim(),
-            Username = username,
-            Email = register.Email.Trim(),
-            PasswordHash = passwordHasher.HashPassword(new User(), register.Password),
-            Role = "User"
-        };
-
-        users.Add(user);
-        SaveUsers();
-        return ToDto(user);
-    }
-
-    public UserDto ChangePassword(int userId, string currentPassword, string newPassword)
-    {
-        var user = users.FirstOrDefault(item => item.Id == userId)
-            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
-
-        if (passwordHasher.VerifyHashedPassword(user, user.PasswordHash, currentPassword) != PasswordVerificationResult.Success)
-            throw new UnauthorizedAccessException("Mật khẩu hiện tại không đúng.");
-
-        user.PasswordHash = passwordHasher.HashPassword(user, newPassword);
-        SaveUsers();
-        return ToDto(user);
-    }
-
-    public void UpdateProfile(int userId, string fullName, string email)
-    {
-        var user = users.FirstOrDefault(item => item.Id == userId)
-            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
-        if (users.Any(item => item.Id != userId && item.Email.Equals(email, StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException("Email đã được sử dụng.");
-        user.FullName = fullName;
-        user.Email = email;
-        SaveUsers();
-    }
-
-    public bool UserExists(string usernameOrEmail)
-    {
-        return users.Any(item => item.Username.Equals(usernameOrEmail.Trim(), StringComparison.OrdinalIgnoreCase) ||
-            item.Email.Equals(usernameOrEmail.Trim(), StringComparison.OrdinalIgnoreCase));
+        return new PagedResult<UserDto>(
+            items,
+            pagedUsers.TotalCount,
+            pagedUsers.PageNumber,
+            pagedUsers.PageSize);
     }
 
     public void UpdateRole(int userId, string role)
@@ -96,55 +32,125 @@ public class UserService : IUserService
         if (!allowedRoles.Contains(role, StringComparer.OrdinalIgnoreCase))
             throw new ArgumentException("Role không hợp lệ.");
 
-        var user = users.FirstOrDefault(item => item.Id == userId)
+        var user = userRepository.GetById(userId)
             ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
+
         user.Role = allowedRoles.First(item => item.Equals(role, StringComparison.OrdinalIgnoreCase));
-        SaveUsers();
+        if (user.Role != "Doctor")
+            user.DoctorId = null;
+        userRepository.SaveChanges();
     }
 
-    private void SeedSpecialAccount(IConfiguration configuration, string secretKey, string passwordVariable, string username, string fullName, string role, string email)
+    public void AssignDoctor(int userId, int? doctorId)
     {
-        var password = configuration[secretKey] ?? Environment.GetEnvironmentVariable(passwordVariable);
-        if (string.IsNullOrWhiteSpace(password))
-            return;
+        var user = userRepository.GetById(userId)
+            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
 
-        var user = new User { Id = users.Count + 1, Username = username, FullName = fullName, Email = email, Role = role };
-        user.PasswordHash = passwordHasher.HashPassword(user, password);
-        users.Add(user);
-    }
+        if (user.Role != "Doctor")
+            throw new InvalidOperationException("Chỉ tài khoản có vai trò Bác sĩ mới được gắn hồ sơ bác sĩ.");
 
-    private void LoadUsers()
-    {
-        if (!File.Exists(usersFilePath))
-            return;
-
-        try
+        if (doctorId.HasValue)
         {
-            var savedUsers = JsonSerializer.Deserialize<List<User>>(File.ReadAllText(usersFilePath)) ?? [];
-            foreach (var user in savedUsers.Where(saved => !users.Any(existing => existing.Username.Equals(saved.Username, StringComparison.OrdinalIgnoreCase))))
-                users.Add(user);
+            if (!userRepository.DoctorExists(doctorId.Value))
+                throw new KeyNotFoundException("Không tìm thấy hồ sơ bác sĩ.");
+            if (userRepository.DoctorAssignedToAnotherUser(doctorId.Value, userId))
+                throw new InvalidOperationException("Hồ sơ bác sĩ này đã được gắn với một tài khoản khác.");
         }
-        catch (JsonException)
-        {
-            // Ignore a malformed local data file and keep the configured special accounts available.
-        }
+
+        user.DoctorId = doctorId;
+        userRepository.LinkDoctorUser(doctorId, userId);
+        userRepository.SaveChanges();
     }
 
-    private void SaveUsers()
+    public UserDto CreateUser(CreateUserDto dto)
     {
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        File.WriteAllText(usersFilePath, JsonSerializer.Serialize(users, options));
-    }
+        var username = dto.Username.Trim();
+        if (userRepository.UsernameExists(username))
+            throw new InvalidOperationException("Tên đăng nhập đã tồn tại.");
 
-    private static UserDto ToDto(User user)
-    {
-        return new UserDto
+        var allowedRoles = new[] { "User", "Doctor", "Receptionist", "Support", "Admin" };
+        var role = allowedRoles.FirstOrDefault(item =>
+            item.Equals(dto.Role, StringComparison.OrdinalIgnoreCase)) ?? "User";
+
+        var user = new User
         {
-            Id = user.Id,
-            FullName = user.FullName,
-            Username = user.Username,
-            Role = user.Role,
-            Email = user.Email
+            FullName = dto.FullName.Trim(),
+            Username = username,
+            Email = dto.Email.Trim(),
+            Role = role,
+            PasswordHash = PasswordHashing.Hash(string.IsNullOrWhiteSpace(dto.Password) ? "123456" : dto.Password),
+            IsLocked = false,
+            CreatedAt = DateTime.Now
         };
+
+        userRepository.Add(user);
+        userRepository.SaveChanges();
+        return ToDto(user);
     }
+
+    public UserDto UpdateUser(int id, UpdateUserDto dto)
+    {
+        var user = userRepository.GetById(id)
+            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
+
+        user.FullName = dto.FullName.Trim();
+        user.Email = dto.Email.Trim();
+
+        var allowedRoles = new[] { "User", "Doctor", "Receptionist", "Support", "Admin" };
+        if (allowedRoles.Any(item => item.Equals(dto.Role, StringComparison.OrdinalIgnoreCase)))
+        {
+            user.Role = allowedRoles.First(item => item.Equals(dto.Role, StringComparison.OrdinalIgnoreCase));
+            if (user.Role != "Doctor")
+                user.DoctorId = null;
+        }
+
+        userRepository.SaveChanges();
+        return ToDto(user);
+    }
+
+    public void DeleteUser(int id)
+    {
+        var user = userRepository.GetById(id)
+            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
+
+        if (user.Role == "Admin" && user.Username == "admin")
+            throw new InvalidOperationException("Không thể xóa tài khoản Quản trị viên gốc.");
+
+        userRepository.Remove(user);
+        userRepository.SaveChanges();
+    }
+
+    public void SetLocked(int id, bool isLocked)
+    {
+        var user = userRepository.GetById(id)
+            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
+
+        if (user.Role == "Admin" && user.Username == "admin")
+            throw new InvalidOperationException("Không thể khóa tài khoản Quản trị viên gốc.");
+
+        user.IsLocked = isLocked;
+        userRepository.SaveChanges();
+    }
+
+    public void ResetPassword(int id, string newPassword)
+    {
+        var user = userRepository.GetById(id)
+            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
+
+        user.PasswordHash = PasswordHashing.Hash(string.IsNullOrWhiteSpace(newPassword) ? "123456" : newPassword);
+        userRepository.SaveChanges();
+    }
+
+    private static UserDto ToDto(User user) => new()
+    {
+        Id = user.Id,
+        FullName = user.FullName,
+        Username = user.Username,
+        Role = user.Role,
+        Email = user.Email,
+        IsLocked = user.IsLocked,
+        DoctorId = user.DoctorId,
+        RewardPoints = user.RewardPoints,
+        CreatedAt = user.CreatedAt
+    };
 }

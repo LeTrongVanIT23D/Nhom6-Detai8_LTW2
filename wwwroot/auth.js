@@ -23,7 +23,7 @@ if (loginForm) {
         username: document.querySelector('#username').value,
         password: document.querySelector('#password').value
       });
-      const destinations = { Admin: '/admin.html', Doctor: '/doctor.html', User: '/user.html', Support: '/support.html' };
+      const destinations = { Admin: '/admin.html', Doctor: '/doctor.html', User: '/user.html', Support: '/support.html', Receptionist: '/index.html' };
       window.location.href = destinations[user.role] || '/';
     } catch (error) { showError(error.message); }
   });

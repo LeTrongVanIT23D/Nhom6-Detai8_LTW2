@@ -18,4 +18,18 @@ public class AppointmentDto
     public string Reason { get; set; } = string.Empty;
 
     public AppointmentStatus Status { get; set; } = AppointmentStatus.Scheduled;
+    public decimal BookingFee { get; set; } = 100000;
+    public int PointsUsed { get; set; } = 0;
 }
+
+public class RescheduleAppointmentDto
+{
+    [Required]
+    public DateTime NewAppointmentDate { get; set; }
+
+    public int? DoctorId { get; set; }
+
+    [StringLength(250)]
+    public string? Reason { get; set; }
+}
+

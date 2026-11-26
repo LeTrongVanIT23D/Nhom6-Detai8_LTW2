@@ -7,4 +7,6 @@ public class PatientDto
     public string Phone { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string MedicalHistory { get; set; } = string.Empty;
+    public string InsuranceNumber { get; set; } = string.Empty;
+    public int RewardPoints { get; set; } = 0;
 }

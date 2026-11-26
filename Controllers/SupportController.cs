@@ -13,7 +13,13 @@ namespace StudentManagement.Controllers;
 public class SupportController : ControllerBase
 {
     private readonly ISupportService service;
-    public SupportController(ISupportService service) { this.service = service; }
+    private readonly INotificationService notificationService;
+
+    public SupportController(ISupportService service, INotificationService notificationService)
+    {
+        this.service = service;
+        this.notificationService = notificationService;
+    }
 
     [HttpGet]
     public ActionResult<List<SupportMessage>> GetAll()
@@ -24,17 +30,44 @@ public class SupportController : ControllerBase
 
     [HttpPost]
     [Authorize(Roles = "User")]
-    public ActionResult<SupportMessage> Create(SupportMessageDto dto)
+    public async Task<ActionResult<SupportMessage>> Create(SupportMessageDto dto)
     {
-        var message = service.Add(int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!), new SupportMessage { Subject = dto.Subject.Trim(), Content = dto.Content.Trim() });
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var senderName = User.FindFirstValue(ClaimTypes.Name) ?? $"User #{userId}";
+
+        var message = service.Add(userId, new SupportMessage
+        {
+            Subject = dto.Subject.Trim(),
+            Content = dto.Content.Trim()
+        });
+
+        try
+        {
+            await notificationService.NotifyNewSupportTicketAsync(message, senderName);
+        }
+        catch { /* Notification failure should not break ticket creation */ }
+
         return Created($"/api/support/{message.Id}", message);
     }
 
     [HttpPatch("{id:int}/reply")]
     [Authorize(Roles = "Support,Admin")]
-    public IActionResult Reply(int id, SupportReplyDto dto)
+    public async Task<IActionResult> Reply(int id, SupportReplyDto dto)
     {
-        try { service.Reply(id, dto.Reply, dto.Status); return NoContent(); }
+        try
+        {
+            service.Reply(id, dto.Reply, dto.Status);
+
+            try
+            {
+                var ticket = service.GetById(id);
+                var replierName = User.FindFirstValue(ClaimTypes.Name) ?? "Nhân viên hỗ trợ";
+                await notificationService.NotifySupportRepliedAsync(ticket, replierName);
+            }
+            catch { /* Notification failure should not break reply */ }
+
+            return NoContent();
+        }
         catch (KeyNotFoundException exception) { return NotFound(new { message = exception.Message }); }
     }
 }

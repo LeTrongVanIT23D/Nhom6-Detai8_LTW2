@@ -28,8 +28,8 @@ document.querySelector('#dashboard')?.addEventListener('click', async () => {
 
 document.querySelector('#users')?.addEventListener('click', async () => {
   try {
-    const users = await request('/api/users');
-    message.textContent = `Hệ thống hiện có ${users.length} tài khoản.`;
+    const users = await request('/api/users?pageSize=1');
+    message.textContent = `Hệ thống hiện có ${users.totalCount} tài khoản.`;
   } catch (error) { message.textContent = error.message; }
 });
 

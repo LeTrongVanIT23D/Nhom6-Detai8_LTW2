@@ -15,6 +15,10 @@ students.json
 users.json
 launchSettings.json
 
+cookies.txt
+cookie.txt
+
 # Operating system files
 .DS_Store
-Thumbs.db
+Logs/
+*.log

@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: medika_db
+    restart: always
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "MedikaClinic@2026!"
+      MSSQL_PID: "Express"
+    ports:
+      - "1433:1433"
+    volumes:
+      - db_data:/var/opt/mssql
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: medika_web
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - "80:80"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:80
+      - ConnectionStrings__DefaultConnection=Server=db,1433;Database=StudentManagementDb;User Id=sa;Password=MedikaClinic@2026!;TrustServerCertificate=True;
+      - JwtSettings__SecretKey=MedikaClinicSuperSecretJwtKey2026AtLeast32BytesLong!
+      - JwtSettings__Issuer=http://localhost
+      - JwtSettings__Audience=http://localhost
+      - JwtSettings__ExpiryMinutes=60
+      - Gemini__IsEnabled=false
+
+volumes:
+  db_data:

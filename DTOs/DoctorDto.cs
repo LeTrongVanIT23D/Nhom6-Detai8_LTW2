@@ -15,4 +15,11 @@ public class DoctorDto
 
     [Required, StringLength(20)]
     public string Room { get; set; } = string.Empty;
+
+    public int? UserId { get; set; }
+    public string Degree { get; set; } = "Bác sĩ CKI";
+    public int ExperienceYears { get; set; } = 5;
+    [Required, StringLength(500)]
+    public string ProfileImageUrl { get; set; } = string.Empty;
+    public bool IsActive { get; set; } = true;
 }
