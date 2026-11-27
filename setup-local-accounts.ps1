@@ -1,3 +1,4 @@
+
 Set-Location $PSScriptRoot
 
 $adminPassword = Read-Host "Nhap mat khau cho tai khoan admin" -AsSecureString
@@ -6,9 +7,17 @@ $receptionistPassword = Read-Host "Nhap mat khau cho tai khoan letu" -AsSecureSt
 $supportPassword = Read-Host "Nhap mat khau cho tai khoan support" -AsSecureString
 
 function Set-LocalSecret($key, $securePassword) {
-	$plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-		[Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword))
-	dotnet user-secrets set $key $plainPassword | Out-Null
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+    try {
+        $plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+        dotnet user-secrets set $key $plainPassword
+        if ($LASTEXITCODE -ne 0) {
+            throw "Khong the luu secret: $key"
+        }
+    }
+    finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
 }
 
 Set-LocalSecret "AdminPassword" $adminPassword
