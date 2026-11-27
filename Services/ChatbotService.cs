@@ -61,6 +61,9 @@ public class ChatbotService : IChatbotService
             if (persistentSettingsLoaded) return;
             if (!File.Exists(persistentSettingsPath))
             {
+                dynamicIsEnabled = configuration.GetValue<bool?>("Chatbot:IsEnabled")
+                    ?? configuration.GetValue<bool?>("Gemini:IsEnabled")
+                    ?? true;
                 persistentSettingsLoaded = true;
                 return;
             }
@@ -232,9 +235,7 @@ public class ChatbotService : IChatbotService
 
     private bool IsAiEnabled()
     {
-        return dynamicIsEnabled && (configuration.GetValue<bool?>("Chatbot:IsEnabled")
-            ?? configuration.GetValue<bool?>("Gemini:IsEnabled")
-            ?? true);
+        return dynamicIsEnabled;
     }
 
     public Task<ChatbotConfigDto> GetConfigAsync()
@@ -1925,7 +1926,7 @@ Sau đó khuyên bệnh nhân gọi ngay 115 hoặc Medika 0335844656.
         if (input.Contains("trẻ") || input.Contains("nhi") || input.Contains("em bé") || input.Contains("bé") || input.Contains("tiêm chủng"))
             return "Nhi khoa";
 
-        if (input.Contains("phụ khoa") || input.Contains("thai") || input.Contains("sản") || input.Contains("kinh nguyệt") || input.Contains("sinh"))
+        if (input.Contains("phụ khoa") || input.Contains("thai") || input.Contains("sản") || input.Contains("kinh nguyệt") || input.Contains("sinh con") || input.Contains("sinh đẻ") || input.Contains("mang bầu") || input.Contains("chuyển dạ"))
             return "Sản phụ khoa";
 
         if (input.Contains("da") || input.Contains("mụn") || input.Contains("ngứa") || input.Contains("dị ứng") || input.Contains("mề đay") || input.Contains("nấm"))

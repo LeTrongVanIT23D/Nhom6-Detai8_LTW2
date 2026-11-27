@@ -43,13 +43,7 @@ if (OperatingSystem.IsWindows())
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
 builder.Services.AddDbContext<AppDbContext>(options => 
-    options.UseSqlServer(connectionString, sqlOptions =>
-    {
-        sqlOptions.EnableRetryOnFailure(
-            maxRetryCount: 5,
-            maxRetryDelay: TimeSpan.FromSeconds(3),
-            errorNumbersToAdd: null);
-    }));
+    options.UseSqlServer(connectionString));
 
 builder.Services.AddSignalR();
 builder.Services.AddHttpClient();

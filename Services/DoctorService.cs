@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using StudentManagement.Data;
 using StudentManagement.Models;
 
@@ -75,21 +76,25 @@ public class DoctorService : IDoctorService
 
     public Doctor Add(Doctor doctor)
     {
-        using var transaction = context.Database.BeginTransaction();
-        context.Doctors.Add(doctor);
-        context.SaveChanges();
-
-        context.DoctorSchedules.AddRange(Enumerable.Range(1, 6).Select(day => new DoctorSchedule
+        var strategy = context.Database.CreateExecutionStrategy();
+        return strategy.Execute(() =>
         {
-            DoctorId = doctor.Id,
-            DayOfWeek = (DayOfWeek)day,
-            StartTime = new TimeOnly(8, 0),
-            EndTime = new TimeOnly(17, 0),
-            IsDayOff = false
-        }));
-        context.SaveChanges();
-        transaction.Commit();
-        return doctor;
+            using var transaction = context.Database.BeginTransaction();
+            context.Doctors.Add(doctor);
+            context.SaveChanges();
+
+            context.DoctorSchedules.AddRange(Enumerable.Range(1, 6).Select(day => new DoctorSchedule
+            {
+                DoctorId = doctor.Id,
+                DayOfWeek = (DayOfWeek)day,
+                StartTime = new TimeOnly(8, 0),
+                EndTime = new TimeOnly(17, 0),
+                IsDayOff = false
+            }));
+            context.SaveChanges();
+            transaction.Commit();
+            return doctor;
+        });
     }
 
     public void Update(int id, Doctor doctor)
